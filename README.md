@@ -1,4 +1,5 @@
-```markdown
+
+
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![CLI Tool](https://img.shields.io/badge/Interface-CLI-green)
 ![Status](https://img.shields.io/badge/Status-Active-orange)
