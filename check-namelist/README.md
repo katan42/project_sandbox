@@ -25,18 +25,19 @@ With practice, and a little bit of trial and error, we eventually match the name
 
 > How to teach computers to reason the same way too?
 
----
+## 🧠 Design Decisions
 
-## 🎯 What This Tool Tries To Do
+### 🧹 Normalisation First
 
-- ✂️ Ignore titles like “Dr” or “Mr”
-- 🔁 Recognise token reordering
-- 🔤 Handle names that are split or merged
-- 🌏 Account for cultural naming conventions
-- 🚫 Avoid matching the same person twice
-- 💾 Remember past corrections
+Instead of relying only on fuzzy matching, the tool reduces noise early:
 
----
+- Remove honorifics  
+- Standardise connectors  
+- Collapse spacing  
+- Canonicalise tokens  
+
+Comparison becomes more reliable when inputs are predictable.
+
 
 ### 🎚 Deterministic Before Fuzzy
 
@@ -48,7 +49,6 @@ Matching happens in tiers:
 
 This keeps suggestions intuitive and grounded.
 
----
 
 ### 🔐 One-to-One Mapping
 
@@ -56,7 +56,6 @@ Once a participant is matched, they cannot be reused.
 
 This prevents accidental double assignments and keeps reconciliation clean.
 
----
 
 ### 🧾 Persistence
 
@@ -67,6 +66,16 @@ The same correction does not need to be made twice.
 Over time, the tool builds memory.
 
 ---
+
+## 🎯 What This Tool Tries To Do
+
+- ✂️ Ignore titles like “Dr” or “Mr”
+- 🔁 Recognise token reordering
+- 🔤 Handle names that are split or merged
+- 🌏 Account for cultural naming conventions
+- 🚫 Avoid matching the same person twice
+- 💾 Remember past corrections
+
 
 ## ⚙️ How It Works 
 
@@ -81,21 +90,6 @@ The system follows a simple flow:
 7. 🗂 Persist confirmed mappings  
 
 Over time, the tool becomes more accurate for the same group.
-
----
-
-## 🧠 Design Decisions
-
-### 🧹 Normalisation First
-
-Instead of relying only on fuzzy matching, the tool reduces noise early:
-
-- Remove honorifics  
-- Standardise connectors  
-- Collapse spacing  
-- Canonicalise tokens  
-
-Comparison becomes more reliable when inputs are predictable.
 
 ---
 
