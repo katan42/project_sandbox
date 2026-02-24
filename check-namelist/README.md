@@ -22,7 +22,9 @@ The same person might appear as:
 But the official record might be `Tan Ah Hua`.
 
 With practice, and a little bit of trial and error, we eventually match the name correctly. The challenge came when i want a tool that could go beyond **exact match search**.
-How to teach computers to reason the same way too?
+
+> How to teach computers to reason the same way too?
+
 ---
 
 ## 🎯 What This Tool Tries To Do
@@ -33,6 +35,36 @@ How to teach computers to reason the same way too?
 - 🌏 Account for cultural naming conventions
 - 🚫 Avoid matching the same person twice
 - 💾 Remember past corrections
+
+---
+
+### 🎚 Deterministic Before Fuzzy
+
+Matching happens in tiers:
+
+- 🥇 Strong token-based matches  
+- 🥈 Token overlap  
+- 🥉 Strict fuzzy fallback  
+
+This keeps suggestions intuitive and grounded.
+
+---
+
+### 🔐 One-to-One Mapping
+
+Once a participant is matched, they cannot be reused.
+
+This prevents accidental double assignments and keeps reconciliation clean.
+
+---
+
+### 🧾 Persistence
+
+When a mismatch is resolved, the decision is saved.
+
+The same correction does not need to be made twice.
+
+Over time, the tool builds memory.
 
 ---
 
@@ -67,36 +99,6 @@ Comparison becomes more reliable when inputs are predictable.
 
 ---
 
-### 🎚 Deterministic Before Fuzzy
-
-Matching happens in tiers:
-
-- 🥇 Strong token-based matches  
-- 🥈 Token overlap  
-- 🥉 Strict fuzzy fallback  
-
-This keeps suggestions intuitive and grounded.
-
----
-
-### 🔐 One-to-One Mapping
-
-Once a participant is matched, they cannot be reused.
-
-This prevents accidental double assignments and keeps reconciliation clean.
-
----
-
-### 🧾 Persistence
-
-When a mismatch is resolved, the decision is saved.
-
-The same correction does not need to be made twice.
-
-Over time, the tool builds memory.
-
----
-
 ## 🧪 Reflection
 
 This project started because of a small frustration in repeated tasks. Then it became even more frustating when the early versions only handled **exact matches**. After many iterations, it evolved into something more helpful.. and... the bigger the class size, the more useful it became. 😄
@@ -114,6 +116,7 @@ I guess this project reflects a simple idea:
 
 ```bash
 python3 checknames.py <org_name>
+```
 
 flags:
 
@@ -124,3 +127,4 @@ flags:
 --delete-participants
 --chunk-file
 --help
+```
