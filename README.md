@@ -1,47 +1,49 @@
-
-
-![Python](https://img.shields.io/badge/Python-3.10+-blue)
-![CLI Tool](https://img.shields.io/badge/Interface-CLI-green)
-![Status](https://img.shields.io/badge/Status-Active-orange)
-
 # 🧪 Project Sandbox
 
-> A personal playground for building small, practical tools.  
-> Inspired by my school's "Project Sandbox" programme which was a space to explore, experiment, and learn beyond the syllabus.
+![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Active-lightgrey?style=flat-square)
+![Type](https://img.shields.io/badge/Type-Exploratory-green?style=flat-square)
+
+A small space for building tools that solve everyday friction.
 
 ---
 
-## 🌱 What is this?
+## 🌱 Why "Sandbox"?
 
-Project Sandbox is a collection of independent mini-projects that solve real-world workflow problems.
+In my previous school, “Sandbox” was a space where students could explore learning outside the syllabus —  no grades, no pressure, just curiosity.
 
-This repository exists outside my formal curriculum work (42 Singapore, AI studies, etc.).  
-It is where I experiment, prototype, and ship small systems that make everyday processes better.
+This repository is inspired by that idea.
 
+It’s where I park projects that:
+
+- 🔄 Experiment with automation  
+- 🛠 Solve real workflow annoyances  
+- 🧠 Explore systems thinking  
+
+I suppose Project Sandbox is a detour built with intention, shaped by every rabbit hole i have chased. 🤪
 
 ---
 
 ## 📦 Projects
 
-### 🔹 1. Check Namelist
-CLI tool for reconciling messy attendance lists against an expected participant list.
+### ✅ Check Namelist  
+A CLI tool for reconciling messy attendance lists against an official namelist.
 
-**Highlights**
-- Fuzzy name matching
-- Token merge detection (e.g. `Ka Tan` ↔ `Katan`)
-- Malay/Indian naming normalization (`bin`, `binti`, `bte`, `a/l`, `a/p`)
-- Honorific stripping (`Dr`, `Mr`, `Mdm`)
-- Alias persistence (stateful reconciliation)
-- Interactive resolution
-- Deletion & update support
+It began as a small frustration with repetitive manual checking, and slowly evolved into a lightweight reconciliation engine.
+
+Focus areas:
+- Identity normalisation  
+- Deterministic matching  
+- Interactive reconciliation  
+- Persistent alias mapping  
 
 📂 [`check-namelist/`](./check-namelist)
 
 ---
 
-### 🔹 2. Make Calendar *(Akan Datang)*
-Tool to generate `.ics` calendar files automatically from structured input.
+### 📅 Make Calendar *(akan datang)*  
+Tool to generate `.ics` calendar files from structured input.
+
+Built to reduce repetitive scheduling setup.
 
 📂 `make-calendar/`
-
----
