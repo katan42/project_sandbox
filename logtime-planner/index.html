@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Logtime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<style>
+  :root {
+    --ground: #e8eaee;
+    --surface: #ffffff;
+    --ink: #12161c;
+    --muted: #616b78;
+    --rule: #cdd3da;
+    --clocked: #16233f;
+    --planned: #1f8a7d;
+    --warn: #b4460f;
+    --display: "Space Grotesk", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px 20px 48px;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 1180px; margin: 0 auto; }
+
+  /* ---- The rail: the one thing this page is for --------------------- */
+
+  .banner {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 22px 24px 20px;
+    margin-bottom: 16px;
+  }
+
+  .banner-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+
+  .headline {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  .weeknav { display: flex; align-items: baseline; gap: 12px; }
+
+  .weeknav .range {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    min-width: 150px;
+    text-align: center;
+  }
+
+  .step {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .step:hover { border-color: var(--ink); }
+
+  .rail {
+    position: relative;
+    height: 34px;
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-right-width: 3px;
+    border-right-color: var(--ink);
+    display: flex;
+    overflow: hidden;
+  }
+
+  .rail-fill { height: 100%; transition: width 220ms ease; }
+  .rail-clocked { background: var(--clocked); }
+  .rail-planned {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--planned) 0 6px,
+      #2ba396 6px 12px
+    );
+  }
+
+  .rail-ticks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+  }
+  .rail-ticks span {
+    flex: 1 0 auto;
+    border-right: 1px solid rgba(97, 107, 120, 0.35);
+  }
+  .rail-ticks span:last-child { border-right: none; }
+
+  .readout {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    margin-top: 16px;
+  }
+
+  .figure { display: flex; flex-direction: column; gap: 3px; }
+  .figure .value {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .figure .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .figure.is-clocked .value { color: var(--clocked); }
+  .figure.is-planned .value { color: var(--planned); }
+  .figure.is-gap .value { color: var(--warn); }
+  .figure.is-done .value { color: var(--planned); }
+
+  .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  button.action {
+    font-family: var(--body);
+    font-size: 14px;
+    padding: 9px 14px;
+    border: 1px solid var(--ink);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.action:hover { background: var(--ink); color: var(--surface); }
+  button.action.primary { background: var(--ink); color: var(--surface); }
+  button.action.primary:hover { background: var(--clocked); }
+  button.action:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.action:focus-visible,
+  .step:focus-visible { outline: 2px solid var(--planned); outline-offset: 2px; }
+
+  .notice {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--warn);
+    background: #fbf1eb;
+    font-size: 13px;
+  }
+  .notice:empty { display: none; }
+
+  /* ---- Grid --------------------------------------------------------- */
+
+  .grid-wrap {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 12px;
+  }
+
+  .fc { --fc-border-color: var(--rule); font-family: var(--body); }
+  .fc .fc-toolbar { display: none; }
+  .fc .fc-timegrid-slot-label-cushion { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .fc .fc-col-header-cell-cushion { text-decoration: none; color: inherit; padding: 8px 4px; }
+
+  .dayhead { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+  .dayhead .dow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .dayhead .dom { font-family: var(--display); font-weight: 700; font-size: 17px; }
+  .dayhead .tally {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--clocked);
+    border-top: 1px solid var(--rule);
+    padding-top: 2px;
+    width: 100%;
+    text-align: center;
+  }
+  .dayhead .tally.zero { color: var(--muted); }
+  .fc .fc-day-today .dayhead .dom { color: var(--planned); }
+
+  .fc .plan-block {
+    background: var(--planned);
+    border: none;
+    border-left: 3px solid #12564e;
+    color: #fff;
+    padding: 2px 4px;
+  }
+  .fc .plan-block .fc-event-title { font-family: var(--mono); font-size: 11px; }
+  .fc .plan-block.conflicted {
+    background: var(--warn);
+    border-left-color: #7d2f08;
+  }
+
+  .fc .busy-block {
+    background: rgba(97, 107, 120, 0.16);
+    border: none;
+  }
+  .fc .fc-bg-event .fc-event-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    font-style: normal;
+    padding: 2px 4px;
+  }
+
+  .hint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .hint kbd {
+    font-family: var(--mono);
+    font-size: 12px;
+    border: 1px solid var(--rule);
+    padding: 1px 5px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail-fill { transition: none; }
+  }
+
+  @media (max-width: 640px) {
+    body { padding: 14px 10px 32px; }
+    .banner { padding: 16px; }
+    .actions { margin-left: 0; width: 100%; }
+    .figure .value { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <section class="banner">
+    <div class="banner-top">
+      <h1 class="headline">Logtime · <span id="target-label">20</span>h week</h1>
+      <div class="weeknav">
+        <button class="step" id="prev" aria-label="Previous week">&larr;</button>
+        <span class="range" id="range">&nbsp;</span>
+        <button class="step" id="next" aria-label="Next week">&rarr;</button>
+      </div>
+    </div>
+
+    <div class="rail" role="img" id="rail-region" aria-label="Week progress">
+      <div class="rail-fill rail-clocked" id="rail-clocked" style="width:0%"></div>
+      <div class="rail-fill rail-planned" id="rail-planned" style="width:0%"></div>
+      <div class="rail-ticks" id="rail-ticks"></div>
+    </div>
+
+    <div class="readout">
+      <div class="figure is-clocked">
+        <span class="value" id="v-clocked">0.0</span>
+        <span class="label">clocked</span>
+      </div>
+      <div class="figure is-planned">
+        <span class="value" id="v-planned">0.0</span>
+        <span class="label">planned</span>
+      </div>
+      <div class="figure is-gap" id="fig-gap">
+        <span class="value" id="v-gap">20.0</span>
+        <span class="label" id="l-gap">to place</span>
+      </div>
+      <div class="actions">
+        <button class="action primary" id="fill">Fill the gap</button>
+        <button class="action" id="refresh">Refresh from intra</button>
+        <button class="action" id="push">Send to iCloud</button>
+      </div>
+    </div>
+
+    <div class="notice" id="notice"></div>
+  </section>
+
+  <div class="grid-wrap"><div id="grid"></div></div>
+
+  <p class="hint">
+    Drag on an empty column to place a block · drag a block to move it ·
+    grab its edge to resize · click it to delete. Grey bands are your other
+    calendars. Orange means the block clashes with one.
+  </p>
+
+</div>
+
+<script>
+const state = { anchor: null, week: null, calendar: null };
+
+const $ = (id) => document.getElementById(id);
+const hours = (n) => (Math.round(n * 10) / 10).toFixed(1);
+
+// Never use toISOString() for a calendar day key — it converts to UTC, which
+// lands on the previous day for anyone east of Greenwich.
+const dayKey = (d) =>
+  d.getFullYear() +
+  "-" + String(d.getMonth() + 1).padStart(2, "0") +
+  "-" + String(d.getDate()).padStart(2, "0");
+
+function say(message, tone) {
+  const box = $("notice");
+  box.textContent = message || "";
+  box.style.borderLeftColor = tone === "good" ? "var(--planned)" : "var(--warn)";
+  box.style.background = tone === "good" ? "#eef7f5" : "#fbf1eb";
+}
+
+async function api(path, options) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = (await response.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+function drawRail(summary) {
+  const target = summary.target || 1;
+  const clockedPct = Math.min(100, (summary.clocked / target) * 100);
+  const plannedPct = Math.min(100 - clockedPct, (summary.plannedFuture / target) * 100);
+  $("rail-clocked").style.width = clockedPct + "%";
+  $("rail-planned").style.width = plannedPct + "%";
+
+  const ticks = $("rail-ticks");
+  if (ticks.childElementCount !== Math.round(target)) {
+    ticks.innerHTML = "";
+    for (let i = 0; i < Math.round(target); i++) ticks.appendChild(document.createElement("span"));
+  }
+  $("rail-region").setAttribute(
+    "aria-label",
+    `${hours(summary.clocked)} hours clocked and ${hours(summary.plannedFuture)} planned of ${target}`
+  );
+
+  $("v-clocked").textContent = hours(summary.clocked);
+  $("v-planned").textContent = hours(summary.plannedFuture);
+
+  const gap = $("fig-gap");
+  if (summary.deficit <= 0.01) {
+    gap.className = "figure is-done";
+    $("v-gap").textContent = hours(summary.covered - summary.target);
+    $("l-gap").textContent = "hours spare";
+  } else {
+    gap.className = "figure is-gap";
+    $("v-gap").textContent = hours(summary.deficit);
+    $("l-gap").textContent = "to place";
+  }
+  $("fill").disabled = summary.deficit <= 0.01;
+}
+
+function sources(week) {
+  const clashing = new Set(week.conflicts.map((c) => c.blockId));
+  const planned = week.blocks.map((block) => ({
+    id: block.id,
+    start: block.start,
+    end: block.end,
+    title: hours(block.hours) + "h" + (block.note && block.note !== "auto" ? " " + block.note : ""),
+    classNames: clashing.has(block.id) ? ["plan-block", "conflicted"] : ["plan-block"],
+  }));
+  const busy = week.busy
+    .filter((event) => event.source !== "error")
+    .map((event) => ({
+      start: event.start,
+      end: event.end,
+      title: event.title,
+      display: "background",
+      classNames: ["busy-block"],
+      editable: false,
+    }));
+  return planned.concat(busy);
+}
+
+function dayHeader(week) {
+  return (arg) => {
+    const iso = dayKey(arg.date);
+    const clocked = week.clockedByDay[iso] || 0;
+    const wrap = document.createElement("div");
+    wrap.className = "dayhead";
+    const dow = document.createElement("span");
+    dow.className = "dow";
+    dow.textContent = arg.date.toLocaleDateString(undefined, { weekday: "short" });
+    const dom = document.createElement("span");
+    dom.className = "dom";
+    dom.textContent = arg.date.getDate();
+    const tally = document.createElement("span");
+    tally.className = clocked > 0 ? "tally" : "tally zero";
+    tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
+    wrap.append(dow, dom, tally);
+    return { domNodes: [wrap] };
+  };
+}
+
+async function load(force) {
+  const query = new URLSearchParams();
+  if (state.anchor) query.set("date_", state.anchor);
+  if (force) query.set("refresh", "true");
+  const week = await api("/api/week?" + query.toString());
+  state.week = week;
+
+  const from = new Date(week.weekStart);
+  const to = new Date(new Date(week.weekEnd).getTime() - 1);
+  const fmt = { month: "short", day: "numeric" };
+  $("range").textContent =
+    from.toLocaleDateString(undefined, fmt) + " – " + to.toLocaleDateString(undefined, fmt);
+  $("target-label").textContent = week.summary.target;
+
+  drawRail(week.summary);
+  say(week.intraError ? "Intra: " + week.intraError : "");
+  $("push").disabled = !week.icloudEnabled;
+
+  const events = sources(week);
+  if (!state.calendar) {
+    state.calendar = new FullCalendar.Calendar($("grid"), {
+      initialView: "timeGridWeek",
+      initialDate: week.weekStart,
+      firstDay: from.getDay(),
+      allDaySlot: false,
+      nowIndicator: true,
+      height: "auto",
+      expandRows: true,
+      slotDuration: "00:30:00",
+      snapDuration: "00:15:00",
+      slotMinTime: week.dayWindow.start + ":00",
+      slotMaxTime: week.dayWindow.end + ":00",
+      editable: true,
+      selectable: true,
+      selectMirror: true,
+      eventOverlap: true,
+      dayHeaderContent: dayHeader(week),
+      events: events,
+      select: async (info) => {
+        try {
+          await api("/api/blocks", {
+            method: "POST",
+            body: JSON.stringify({ start: info.startStr, end: info.endStr }),
+          });
+          await load();
+        } catch (error) { say(error.message); }
+        state.calendar.unselect();
+      },
+      eventDrop: (info) => move(info),
+      eventResize: (info) => move(info),
+      eventClick: async (info) => {
+        if (info.event.display === "background") return;
+        if (!confirm("Delete this " + info.event.title + " block?")) return;
+        await api("/api/blocks/" + info.event.id, { method: "DELETE" });
+        await load();
+      },
+    });
+    state.calendar.render();
+  } else {
+    state.calendar.setOption("dayHeaderContent", dayHeader(week));
+    state.calendar.gotoDate(week.weekStart);
+    state.calendar.removeAllEvents();
+    events.forEach((event) => state.calendar.addEvent(event));
+  }
+}
+
+async function move(info) {
+  try {
+    await api("/api/blocks/" + info.event.id, {
+      method: "PATCH",
+      body: JSON.stringify({ start: info.event.startStr, end: info.event.endStr }),
+    });
+    await load();
+  } catch (error) {
+    say(error.message);
+    info.revert();
+  }
+}
+
+function shiftWeek(days) {
+  const base = new Date(state.week ? state.week.weekStart : Date.now());
+  base.setDate(base.getDate() + days);
+  state.anchor = dayKey(base);
+  load();
+}
+
+$("prev").onclick = () => shiftWeek(-7);
+$("next").onclick = () => shiftWeek(7);
+
+$("refresh").onclick = async () => {
+  $("refresh").disabled = true;
+  try { await load(true); say("Up to date with intra.", "good"); }
+  catch (error) { say(error.message); }
+  finally { $("refresh").disabled = false; }
+};
+
+$("fill").onclick = async () => {
+  $("fill").disabled = true;
+  try {
+    const query = state.anchor ? "?date_=" + state.anchor : "";
+    const result = await api("/api/rebalance" + query, { method: "POST" });
+    await load();
+    say(result.detail, result.shortfall > 0.01 ? "warn" : "good");
+  } catch (error) { say(error.message); }
+};
+
+$("push").onclick = async () => {
+  $("push").disabled = true;
+  try {
+    const query = state.anchor ? "?date_=" + state.anchor : "";
+    const result = await api("/api/push" + query, { method: "POST" });
+    say(`Sent ${result.written} block(s) to iCloud, removed ${result.removed}.`, "good");
+  } catch (error) { say(error.message); }
+  finally { $("push").disabled = false; }
+};
+
+load().catch((error) => say(error.message));
+</script>
+</body>
+</html>
