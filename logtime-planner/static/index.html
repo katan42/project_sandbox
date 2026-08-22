@@ -165,6 +165,37 @@
   button.action:focus-visible,
   .step:focus-visible { outline: 2px solid var(--planned); outline-offset: 2px; }
 
+  .monthstrip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .monthstrip .mlabel {
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    min-width: 72px;
+  }
+  .mrail {
+    flex: 1 1 160px;
+    height: 8px;
+    border: 1px solid var(--rule);
+    overflow: hidden;
+  }
+  .mrail-fill {
+    height: 100%;
+    background: var(--clocked);
+    transition: width 220ms ease;
+  }
+  .monthstrip .mfig { color: var(--ink); }
+  .monthstrip .mfig b { font-weight: 500; }
+
   .notice {
     margin-top: 14px;
     padding: 10px 12px;
@@ -293,7 +324,15 @@
         <button class="action primary" id="fill">Fill the gap</button>
         <button class="action" id="refresh">Refresh from intra</button>
         <button class="action" id="push">Send to iCloud</button>
+        <button class="action" id="pull">Sync from iCloud</button>
       </div>
+    </div>
+
+    <div class="monthstrip">
+      <span class="mlabel" id="m-label">Month</span>
+      <div class="mrail"><div class="mrail-fill" id="m-fill" style="width:0%"></div></div>
+      <span class="mfig"><b id="m-clocked">0.0</b> / <span id="m-target">90</span>h</span>
+      <span class="mfig" id="m-left">&nbsp;</span>
     </div>
 
     <div class="notice" id="notice"></div>
@@ -310,7 +349,7 @@
 </div>
 
 <script>
-const state = { anchor: null, week: null, calendar: null };
+const state = { anchor: null, week: null, calendar: null, busy: false };
 
 const $ = (id) => document.getElementById(id);
 const hours = (n) => (Math.round(n * 10) / 10).toFixed(1);
@@ -375,13 +414,26 @@ function drawRail(summary) {
   $("fill").disabled = summary.deficit <= 0.01;
 }
 
-function sources(week) {
+function drawMonth(month) {
+  if (!month) return;
+  $("m-label").textContent = month.label;
+  $("m-clocked").textContent = hours(month.clocked);
+  $("m-target").textContent = month.target;
+  $("m-fill").style.width =
+    Math.min(100, (month.clocked / (month.target || 1)) * 100) + "%";
+  $("m-left").textContent =
+    month.remaining <= 0.01
+      ? "target met"
+      : hours(month.remaining) + "h to go · " + month.daysLeft + " days left";
+}
+
+function eventsFrom(week) {
   const clashing = new Set(week.conflicts.map((c) => c.blockId));
   const planned = week.blocks.map((block) => ({
     id: block.id,
     start: block.start,
     end: block.end,
-    title: hours(block.hours) + "h" + (block.note && block.note !== "auto" ? " " + block.note : ""),
+    title: hours(block.hours) + "h" + (block.note ? " " + block.note : ""),
     classNames: clashing.has(block.id) ? ["plan-block", "conflicted"] : ["plan-block"],
   }));
   const busy = week.busy
@@ -397,31 +449,28 @@ function sources(week) {
   return planned.concat(busy);
 }
 
-function dayHeader(week) {
-  return (arg) => {
-    const iso = dayKey(arg.date);
-    const clocked = week.clockedByDay[iso] || 0;
-    const wrap = document.createElement("div");
-    wrap.className = "dayhead";
-    const dow = document.createElement("span");
-    dow.className = "dow";
-    dow.textContent = arg.date.toLocaleDateString(undefined, { weekday: "short" });
-    const dom = document.createElement("span");
-    dom.className = "dom";
-    dom.textContent = arg.date.getDate();
-    const tally = document.createElement("span");
-    tally.className = clocked > 0 ? "tally" : "tally zero";
-    tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
-    wrap.append(dow, dom, tally);
-    return { domNodes: [wrap] };
-  };
+function dayHeader(arg) {
+  const week = state.week;
+  const clocked = week && week.clockedByDay ? week.clockedByDay[dayKey(arg.date)] || 0 : 0;
+  const wrap = document.createElement("div");
+  wrap.className = "dayhead";
+  const dow = document.createElement("span");
+  dow.className = "dow";
+  dow.textContent = arg.date.toLocaleDateString(undefined, { weekday: "short" });
+  const dom = document.createElement("span");
+  dom.className = "dom";
+  dom.textContent = arg.date.getDate();
+  const tally = document.createElement("span");
+  tally.className = clocked > 0 ? "tally" : "tally zero";
+  tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
+  wrap.append(dow, dom, tally);
+  return { domNodes: [wrap] };
 }
 
-async function load(force) {
-  const query = new URLSearchParams();
-  if (state.anchor) query.set("date_", state.anchor);
-  if (force) query.set("refresh", "true");
-  const week = await api("/api/week?" + query.toString());
+// Repaints everything from a freshly fetched week. Never moves the calendar's
+// date range — that is the calendar's own job, and mixing the two is what made
+// the arrows feel dead.
+function paint(week) {
   state.week = week;
 
   const from = new Date(week.weekStart);
@@ -432,54 +481,36 @@ async function load(force) {
   $("target-label").textContent = week.summary.target;
 
   drawRail(week.summary);
+  drawMonth(week.month);
   say(week.intraError ? "Intra: " + week.intraError : "");
   $("push").disabled = !week.icloudEnabled;
+  $("pull").disabled = !week.icloudEnabled;
 
-  const events = sources(week);
-  if (!state.calendar) {
-    state.calendar = new FullCalendar.Calendar($("grid"), {
-      initialView: "timeGridWeek",
-      initialDate: week.weekStart,
-      firstDay: from.getDay(),
-      allDaySlot: false,
-      nowIndicator: true,
-      height: "auto",
-      expandRows: true,
-      slotDuration: "00:30:00",
-      snapDuration: "00:15:00",
-      slotMinTime: week.dayWindow.start + ":00",
-      slotMaxTime: week.dayWindow.end + ":00",
-      editable: true,
-      selectable: true,
-      selectMirror: true,
-      eventOverlap: true,
-      dayHeaderContent: dayHeader(week),
-      events: events,
-      select: async (info) => {
-        try {
-          await api("/api/blocks", {
-            method: "POST",
-            body: JSON.stringify({ start: info.startStr, end: info.endStr }),
-          });
-          await load();
-        } catch (error) { say(error.message); }
-        state.calendar.unselect();
-      },
-      eventDrop: (info) => move(info),
-      eventResize: (info) => move(info),
-      eventClick: async (info) => {
-        if (info.event.display === "background") return;
-        if (!confirm("Delete this " + info.event.title + " block?")) return;
-        await api("/api/blocks/" + info.event.id, { method: "DELETE" });
-        await load();
-      },
-    });
-    state.calendar.render();
-  } else {
-    state.calendar.setOption("dayHeaderContent", dayHeader(week));
-    state.calendar.gotoDate(week.weekStart);
-    state.calendar.removeAllEvents();
-    events.forEach((event) => state.calendar.addEvent(event));
+  state.calendar.removeAllEvents();
+  eventsFrom(week).forEach((event) => state.calendar.addEvent(event));
+
+  document.querySelectorAll(".fc-col-header-cell").forEach((cell) => {
+    const iso = cell.getAttribute("data-date");
+    const tally = cell.querySelector(".tally");
+    if (!iso || !tally) return;
+    const clocked = week.clockedByDay[iso] || 0;
+    tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
+    tally.className = clocked > 0 ? "tally" : "tally zero";
+  });
+}
+
+async function refresh(force) {
+  if (state.busy) return;
+  state.busy = true;
+  try {
+    const query = new URLSearchParams();
+    if (state.anchor) query.set("date_", state.anchor);
+    if (force) query.set("refresh", "true");
+    paint(await api("/api/week?" + query.toString()));
+  } catch (error) {
+    say(error.message);
+  } finally {
+    state.busy = false;
   }
 }
 
@@ -489,27 +520,75 @@ async function move(info) {
       method: "PATCH",
       body: JSON.stringify({ start: info.event.startStr, end: info.event.endStr }),
     });
-    await load();
+    await refresh();
   } catch (error) {
     say(error.message);
     info.revert();
   }
 }
 
-function shiftWeek(days) {
-  const base = new Date(state.week ? state.week.weekStart : Date.now());
-  base.setDate(base.getDate() + days);
-  state.anchor = dayKey(base);
-  load();
+async function boot() {
+  const first = await api("/api/week");
+  state.week = first;
+  state.anchor = first.weekStart.slice(0, 10);
+
+  state.calendar = new FullCalendar.Calendar($("grid"), {
+    initialView: "timeGridWeek",
+    initialDate: first.weekStart,
+    firstDay: new Date(first.weekStart).getDay(),
+    allDaySlot: false,
+    nowIndicator: true,
+    height: "auto",
+    expandRows: true,
+    slotDuration: "00:30:00",
+    snapDuration: "00:15:00",
+    slotMinTime: first.dayWindow.start + ":00",
+    slotMaxTime: first.dayWindow.end + ":00",
+    editable: true,
+    selectable: true,
+    selectMirror: true,
+    eventOverlap: true,
+    dayHeaderContent: dayHeader,
+    // The calendar owns navigation. When its range changes we fetch data for
+    // whatever it is now showing — no gotoDate from our side, so no fighting.
+    datesSet: (info) => {
+      const anchor = dayKey(info.view.currentStart);
+      if (anchor === state.anchor && state.week) return;
+      state.anchor = anchor;
+      refresh();
+    },
+    select: async (info) => {
+      try {
+        await api("/api/blocks", {
+          method: "POST",
+          body: JSON.stringify({ start: info.startStr, end: info.endStr }),
+        });
+        await refresh();
+      } catch (error) { say(error.message); }
+      state.calendar.unselect();
+    },
+    eventDrop: move,
+    eventResize: move,
+    eventClick: async (info) => {
+      if (info.event.display === "background") return;
+      if (!confirm("Delete this " + info.event.title + " block?")) return;
+      try {
+        await api("/api/blocks/" + info.event.id, { method: "DELETE" });
+        await refresh();
+      } catch (error) { say(error.message); }
+    },
+  });
+
+  state.calendar.render();
+  paint(first);
 }
 
-$("prev").onclick = () => shiftWeek(-7);
-$("next").onclick = () => shiftWeek(7);
+$("prev").onclick = () => state.calendar && state.calendar.prev();
+$("next").onclick = () => state.calendar && state.calendar.next();
 
 $("refresh").onclick = async () => {
   $("refresh").disabled = true;
-  try { await load(true); say("Up to date with intra.", "good"); }
-  catch (error) { say(error.message); }
+  try { await refresh(true); say("Up to date with intra.", "good"); }
   finally { $("refresh").disabled = false; }
 };
 
@@ -518,7 +597,7 @@ $("fill").onclick = async () => {
   try {
     const query = state.anchor ? "?date_=" + state.anchor : "";
     const result = await api("/api/rebalance" + query, { method: "POST" });
-    await load();
+    await refresh();
     say(result.detail, result.shortfall > 0.01 ? "warn" : "good");
   } catch (error) { say(error.message); }
 };
@@ -533,7 +612,23 @@ $("push").onclick = async () => {
   finally { $("push").disabled = false; }
 };
 
-load().catch((error) => say(error.message));
+$("pull").onclick = async () => {
+  $("pull").disabled = true;
+  try {
+    const query = state.anchor ? "?date_=" + state.anchor : "";
+    const result = await api("/api/pull" + query, { method: "POST" });
+    await refresh();
+    say(
+      result.removed
+        ? `Removed ${result.removed} block(s) you deleted in Calendar.`
+        : "Nothing deleted in Calendar — already in sync.",
+      "good"
+    );
+  } catch (error) { say(error.message); }
+  finally { $("pull").disabled = false; }
+};
+
+boot().catch((error) => say(error.message));
 </script>
 </body>
 </html>

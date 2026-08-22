@@ -30,6 +30,7 @@ class Settings:
 
     timezone: str = os.getenv("TIMEZONE", "Asia/Singapore")
     weekly_target_hours: float = float(os.getenv("WEEKLY_TARGET_HOURS", "20"))
+    monthly_target_hours: float = float(os.getenv("MONTHLY_TARGET_HOURS", "90"))
     week_start_day: int = int(os.getenv("WEEK_START_DAY", "0"))
 
     day_window_start: time = _time("DAY_WINDOW_START", "08:00")

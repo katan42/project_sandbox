@@ -101,6 +101,21 @@ def test_the_friday_shortfall_scenario():
     assert summary.deficit_hours == 1  # the hour Friday lost
 
 
+def test_hours_by_day_splits_a_session_at_midnight():
+    """21:00 Saturday to 03:00 Sunday is three Saturday hours and three Sunday
+    hours, not six of either."""
+    split = planner.hours_by_day([(at(22, 21), at(23, 3))], TZ)
+    assert split[date(2026, 8, 22)] == timedelta(hours=3)
+    assert split[date(2026, 8, 23)] == timedelta(hours=3)
+
+
+def test_hours_by_day_totals_multiple_sessions():
+    split = planner.hours_by_day(
+        [(at(22, 9), at(22, 11, 30)), (at(22, 14), at(22, 17))], TZ
+    )
+    assert split[date(2026, 8, 22)] == timedelta(hours=5, minutes=30)
+
+
 def test_autofill_closes_the_gap_within_day_caps():
     windows = planner.free_windows(
         days=[date(2026, 8, 8), date(2026, 8, 9)],

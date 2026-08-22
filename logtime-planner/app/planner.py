@@ -72,6 +72,28 @@ def free_windows(
     return windows
 
 
+def hours_by_day(
+    sessions: list[tuple[datetime, datetime]], tz
+) -> dict[date, timedelta]:
+    """Split sessions at local midnight and total each day.
+
+    A session running from 21:00 Saturday to 03:00 Sunday is six hours, but it
+    is not six Saturday hours — it's three and three.
+    """
+    totals: dict[date, timedelta] = {}
+    for begin, finish in sessions:
+        cursor = begin
+        while cursor < finish:
+            midnight = datetime.combine(
+                cursor.date() + timedelta(days=1), time.min, tzinfo=tz
+            )
+            segment_end = min(finish, midnight)
+            day = cursor.date()
+            totals[day] = totals.get(day, timedelta()) + (segment_end - cursor)
+            cursor = segment_end
+    return totals
+
+
 @dataclass
 class Conflict:
     block_id: str

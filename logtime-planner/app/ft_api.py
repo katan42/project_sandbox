@@ -47,6 +47,8 @@ class FtClient:
         self._token: str | None = None
         self._expires_at = datetime.now(timezone.utc)
         self._lock = threading.Lock()
+        self.secret_days_left: int | None = None
+        self.secret_expires_on: datetime | None = None
 
     def _access_token(self) -> str:
         with self._lock:
@@ -67,6 +69,23 @@ class FtClient:
                     "Check FT_UID and FT_SECRET."
                 )
             payload = response.json()
+
+            # 42 rotates client secrets on roughly a 30-day cycle and tells us
+            # the deadline here. Without this the app just starts 401-ing one
+            # morning with no explanation.
+            valid_until = payload.get("secret_valid_until")
+            if valid_until:
+                expires_on = datetime.fromtimestamp(int(valid_until), timezone.utc)
+                self.secret_expires_on = expires_on
+                self.secret_days_left = (expires_on - datetime.now(timezone.utc)).days
+                if self.secret_days_left < 7:
+                    print(
+                        f"[logtime] 42 client secret expires in "
+                        f"{self.secret_days_left} day(s), on "
+                        f"{expires_on.date().isoformat()}. Regenerate it at "
+                        "profile.intra.42.fr and update FT_SECRET in .env."
+                    )
+
             self._token = payload["access_token"]
             lifetime = int(payload.get("expires_in", 7200))
             self._expires_at = datetime.now(timezone.utc) + timedelta(
@@ -90,8 +109,54 @@ class FtClient:
             raise FtApiError(f"{path} returned {response.status_code}")
         return response.json()
 
-    def daily_logtime(self, start: date, end: date) -> dict[date, timedelta]:
-        """Hours clocked per day, inclusive of both ends."""
+    def sessions_between(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, datetime]]:
+        """Raw login sessions overlapping the window, clipped to it.
+
+        locations_stats is a per-day rollup whose treatment of a session that
+        is still running is not something we should have to guess at. Sessions
+        are unambiguous: a null end_at means "still going", so we substitute
+        now, and a session spanning midnight gets split by the caller.
+        """
+        now = datetime.now(settings.tz)
+        found: list[tuple[datetime, datetime]] = []
+
+        for page in range(1, 6):  # 500 sessions is far more than a week needs
+            rows = self._get(
+                f"/users/{settings.ft_login}/locations",
+                {"page[size]": 100, "page[number]": page},
+            )
+            if not rows:
+                break
+
+            reached_the_past = False
+            for row in rows:
+                begin = datetime.fromisoformat(
+                    row["begin_at"].replace("Z", "+00:00")
+                ).astimezone(settings.tz)
+                finish = (
+                    datetime.fromisoformat(row["end_at"].replace("Z", "+00:00")).astimezone(
+                        settings.tz
+                    )
+                    if row.get("end_at")
+                    else now
+                )
+                if finish <= start:
+                    reached_the_past = True  # newest-first, so we can stop
+                    continue
+                if begin >= end:
+                    continue
+                found.append((max(begin, start), min(finish, end)))
+
+            if reached_the_past:
+                break
+
+        return found
+
+    def all_logtime(self) -> dict[date, timedelta]:
+        """Every day intra has a record for. One call feeds both the week and
+        the month view, which keeps us well clear of the rate limit."""
         raw = self._get(f"/users/{settings.ft_login}/locations_stats")
         out: dict[date, timedelta] = {}
         for day_str, duration_str in raw.items():
@@ -99,9 +164,16 @@ class FtClient:
                 day = date.fromisoformat(day_str)
             except ValueError:
                 continue
-            if start <= day <= end:
-                out[day] = parse_duration(duration_str)
+            out[day] = parse_duration(duration_str)
         return out
+
+    def daily_logtime(self, start: date, end: date) -> dict[date, timedelta]:
+        """Hours clocked per day, inclusive of both ends."""
+        return {
+            day: duration
+            for day, duration in self.all_logtime().items()
+            if start <= day <= end
+        }
 
     def open_session_started_at(self) -> datetime | None:
         """Start time of a session that is still running, if any."""

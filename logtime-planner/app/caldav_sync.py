@@ -29,7 +29,10 @@ def _stamp(moment: datetime) -> str:
 
 
 def _ics(block: store.Block) -> str:
-    title = block.note.strip() or "42 logtime"
+    note = block.note.strip()
+    if note.lower() == "auto":
+        note = ""  # legacy rows created before auto-blocks stopped being labelled
+    title = note or "42 planned hours"
     return "\r\n".join(
         [
             "BEGIN:VCALENDAR",
@@ -46,6 +49,32 @@ def _ics(block: store.Block) -> str:
             "END:VCALENDAR",
         ]
     )
+
+
+def pull_week(start: datetime, end: datetime) -> dict:
+    """Notice blocks you deleted in Calendar.app and drop them from the database.
+
+    Only ever deletes blocks that were previously pushed. A block you just made
+    in the planner and haven't synced yet is absent from iCloud for an innocent
+    reason, and must not be mistaken for a deletion.
+    """
+    if not settings.icloud_enabled:
+        return {"ok": False, "detail": "iCloud credentials are not configured."}
+
+    calendar = plan_calendar()
+    still_there: set[str] = set()
+    for existing in calendar.search(start=start, end=end, event=True):
+        uid = str(existing.icalendar_component.get("UID", ""))
+        if uid.endswith(UID_SUFFIX):
+            still_there.add(uid[: -len(UID_SUFFIX)])
+
+    removed = 0
+    for block in store.list_between(start, end):
+        if block.pushed_at and block.id not in still_there:
+            store.delete(block.id)
+            removed += 1
+
+    return {"ok": True, "removed": removed}
 
 
 def push_week(start: datetime, end: datetime) -> dict:

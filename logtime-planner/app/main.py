@@ -51,34 +51,90 @@ def _anchor(day: str | None) -> date:
     return date.fromisoformat(day) if day else datetime.now(settings.tz).date()
 
 
+def _month_summary(
+    all_logtime: dict[date, timedelta], live_hours: float, now: datetime
+) -> dict:
+    """Calendar-month progress against MONTHLY_TARGET_HOURS."""
+    first = now.date().replace(day=1)
+    if first.month == 12:
+        next_first = first.replace(year=first.year + 1, month=1)
+    else:
+        next_first = first.replace(month=first.month + 1)
+
+    clocked = sum(
+        duration.total_seconds()
+        for day, duration in all_logtime.items()
+        if first <= day < next_first
+    ) / 3600
+    clocked += live_hours
+
+    month_start = datetime.combine(first, datetime.min.time(), tzinfo=settings.tz)
+    month_end = datetime.combine(next_first, datetime.min.time(), tzinfo=settings.tz)
+    planned = sum(
+        block.hours
+        for block in store.list_between(month_start, month_end)
+        if block.end > now
+    )
+
+    target = settings.monthly_target_hours
+    days_left = (next_first - now.date()).days
+    return {
+        "target": round(target, 2),
+        "clocked": round(clocked, 2),
+        "planned": round(planned, 2),
+        "remaining": round(max(0.0, target - clocked - planned), 2),
+        "daysLeft": days_left,
+        "label": first.strftime("%B"),
+    }
+
+
 def _load_week(anchor: date, force: bool = False) -> dict:
     start, end = week_bounds(anchor)
     now = datetime.now(settings.tz)
 
     busy = _cached(f"busy:{start.date()}", lambda: busy_between(start, end), force)
 
-    clocked: dict[date, timedelta] = {}
+    all_logtime: dict[date, timedelta] = {}
     open_since = None
     intra_error = None
+    clocked: dict[date, timedelta] = {}
     if settings.ft_enabled:
         try:
-            clocked = _cached(
-                f"clocked:{start.date()}",
-                lambda: client.daily_logtime(start.date(), end.date()),
+            all_logtime = _cached("logtime", client.all_logtime, force)
+            open_since = _cached("open", client.open_session_started_at, force)
+            # Raw sessions, not the daily rollup: this is the only way to be
+            # sure about a session that is still running or crosses midnight.
+            sessions = _cached(
+                f"sessions:{start.date()}",
+                lambda: client.sessions_between(start, end),
                 force,
             )
-            open_since = _cached("open", client.open_session_started_at, force)
+            clocked = planner.hours_by_day(sessions, settings.tz)
         except FtApiError as exc:
             intra_error = str(exc)
+            clocked = {
+                day: duration
+                for day, duration in all_logtime.items()
+                if start.date() <= day < end.date()
+            }
 
-    # A session still running isn't in locations_stats yet — count it live.
+    # locations_stats already reflects a session that is still running — intra
+    # updates it live. Adding our own estimate on top double-counts, so we only
+    # keep open_since to show that a session is in progress.
     live_hours = 0.0
-    if open_since and start <= open_since < end:
-        live_hours = (now - open_since).total_seconds() / 3600
 
     blocks = store.list_between(start, end)
     summary = planner.summarise(settings.weekly_target_hours, clocked, blocks, now)
     summary.clocked_hours += live_hours
+
+    clocked_by_day = {
+        day.isoformat(): round(duration.total_seconds() / 3600, 2)
+        for day, duration in sorted(clocked.items())
+    }
+
+    merged = dict(all_logtime)
+    merged.update(clocked)  # session data wins for the days it covers
+    month = _month_summary(merged, live_hours, now)
 
     conflicts = planner.find_conflicts(
         blocks, busy, timedelta(minutes=settings.travel_buffer_minutes)
@@ -92,10 +148,8 @@ def _load_week(anchor: date, force: bool = False) -> dict:
         "summary": summary.as_dict(),
         "liveHours": round(live_hours, 2),
         "openSince": open_since.isoformat() if open_since else None,
-        "clockedByDay": {
-            day.isoformat(): round(duration.total_seconds() / 3600, 2)
-            for day, duration in sorted(clocked.items())
-        },
+        "clockedByDay": clocked_by_day,
+        "month": month,
         "blocks": [block.as_dict() for block in blocks],
         "busy": [event.as_dict() for event in busy],
         "conflicts": [
@@ -194,7 +248,7 @@ def rebalance(date_: str | None = None):
     )
 
     for begins, finishes in placements:
-        store.create(begins, finishes, "auto")
+        store.create(begins, finishes, "")
 
     placed_hours = sum((f - b).total_seconds() / 3600 for b, f in placements)
     shortfall = round(deficit - placed_hours, 2)
@@ -211,6 +265,16 @@ def rebalance(date_: str | None = None):
     }
 
 
+@app.post("/api/pull")
+def pull(date_: str | None = None):
+    """Reconcile deletions made in Calendar.app back into the planner."""
+    start, end = week_bounds(_anchor(date_))
+    try:
+        return caldav_sync.pull_week(start, end)
+    except Exception as exc:
+        raise HTTPException(502, f"iCloud pull failed: {exc}")
+
+
 @app.post("/api/push")
 def push(date_: str | None = None):
     start, end = week_bounds(_anchor(date_))
@@ -222,12 +286,29 @@ def push(date_: str | None = None):
 
 @app.get("/api/health")
 def health():
+    secret = {"daysLeft": None, "expiresOn": None, "warn": False, "error": None}
+    if settings.ft_enabled:
+        try:
+            client._access_token()  # populates the expiry fields
+            secret["daysLeft"] = client.secret_days_left
+            secret["expiresOn"] = (
+                client.secret_expires_on.date().isoformat()
+                if client.secret_expires_on
+                else None
+            )
+            secret["warn"] = (
+                client.secret_days_left is not None and client.secret_days_left < 7
+            )
+        except FtApiError as exc:
+            secret["error"] = str(exc)
+
     return {
         "intra": settings.ft_enabled,
         "icloud": settings.icloud_enabled,
         "googleFeeds": len(settings.google_ics_urls),
         "target": settings.weekly_target_hours,
         "timezone": settings.timezone,
+        "secret": secret,
     }
 
 
