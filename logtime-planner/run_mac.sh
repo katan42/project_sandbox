@@ -1,5 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 # macOS launcher. On Linux use ./run.sh instead.
+
+cd "$(dirname "$0")" || exit 1
 
 PORT=8042
 
