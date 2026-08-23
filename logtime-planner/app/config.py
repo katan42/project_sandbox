@@ -36,6 +36,12 @@ class Settings:
     day_window_start: time = _time("DAY_WINDOW_START", "08:00")
     day_window_end: time = _time("DAY_WINDOW_END", "23:00")
 
+    # What the grid *draws*, as opposed to where auto-fill may place blocks.
+    # Kept as strings because FullCalendar's end-of-day is "24:00", which
+    # datetime.time cannot represent.
+    grid_start: str = os.getenv("GRID_START", "00:00")
+    grid_end: str = os.getenv("GRID_END", "24:00")
+
     min_block_minutes: int = int(os.getenv("MIN_BLOCK_MINUTES", "60"))
     max_hours_per_day: float = float(os.getenv("MAX_HOURS_PER_DAY", "10"))
     travel_buffer_minutes: int = int(os.getenv("TRAVEL_BUFFER_MINUTES", "30"))

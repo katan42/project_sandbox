@@ -148,6 +148,12 @@ you just made and haven't synced isn't mistaken for a deletion. Edits you make
 to event *times* in Calendar.app are overwritten on the next push — move blocks
 in the planner, not in Calendar.
 
+**The grid and auto-fill have separate hours.** `GRID_START`/`GRID_END` control
+what the week grid draws — set them to `00:00` and `24:00` to see overnight
+sessions. `DAY_WINDOW_START`/`DAY_WINDOW_END` control where **Fill the gap** may
+place blocks, so widening the grid doesn't get you scheduled at 4am. The grid
+scrolls to the auto-fill start on open.
+
 **Confirm your campus's week.** `WEEK_START_DAY` defaults to Monday and the
 target is a plain calendar-week sum. Some campuses use a rolling window; if
 yours does, `summarise()` in `app/planner.py` is the only thing to change.

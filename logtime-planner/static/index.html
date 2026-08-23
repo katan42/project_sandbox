@@ -252,6 +252,39 @@
     border-left-color: #7d2f08;
   }
 
+  .fc .actual-block {
+    background: rgba(22, 35, 63, 0.20);
+    border: none;
+    border-left: 3px solid var(--clocked);
+  }
+  .fc .actual-block.running {
+    background: repeating-linear-gradient(
+      -45deg,
+      rgba(22, 35, 63, 0.22) 0 7px,
+      rgba(22, 35, 63, 0.10) 7px 14px
+    );
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend i {
+    width: 14px;
+    height: 10px;
+    display: inline-block;
+    border-left: 3px solid transparent;
+  }
+  .legend i.k-actual { background: rgba(22,35,63,0.20); border-left-color: var(--clocked); }
+  .legend i.k-plan { background: var(--planned); border-left-color: #12564e; }
+  .legend i.k-busy { background: rgba(97,107,120,0.16); }
+
   .fc .busy-block {
     background: rgba(97, 107, 120, 0.16);
     border: none;
@@ -338,7 +371,14 @@
     <div class="notice" id="notice"></div>
   </section>
 
-  <div class="grid-wrap"><div id="grid"></div></div>
+  <div class="grid-wrap">
+    <div class="legend">
+      <span><i class="k-actual"></i> clocked (from intra)</span>
+      <span><i class="k-plan"></i> planned</span>
+      <span><i class="k-busy"></i> other calendars</span>
+    </div>
+    <div id="grid"></div>
+  </div>
 
   <p class="hint">
     Drag on an empty column to place a block · drag a block to move it ·
@@ -436,6 +476,17 @@ function eventsFrom(week) {
     title: hours(block.hours) + "h" + (block.note ? " " + block.note : ""),
     classNames: clashing.has(block.id) ? ["plan-block", "conflicted"] : ["plan-block"],
   }));
+  // Actual sessions sit behind planned blocks: a planned block with tint under
+  // it happened, one without it didn't. Tint with nothing on top is unplanned
+  // time you clocked anyway.
+  const actual = (week.sessions || []).map((session) => ({
+    start: session.start,
+    end: session.end,
+    title: "",
+    display: "background",
+    classNames: session.open ? ["actual-block", "running"] : ["actual-block"],
+    editable: false,
+  }));
   const busy = week.busy
     .filter((event) => event.source !== "error")
     .map((event) => ({
@@ -446,7 +497,7 @@ function eventsFrom(week) {
       classNames: ["busy-block"],
       editable: false,
     }));
-  return planned.concat(busy);
+  return actual.concat(busy).concat(planned);
 }
 
 function dayHeader(arg) {
@@ -542,8 +593,9 @@ async function boot() {
     expandRows: true,
     slotDuration: "00:30:00",
     snapDuration: "00:15:00",
-    slotMinTime: first.dayWindow.start + ":00",
-    slotMaxTime: first.dayWindow.end + ":00",
+    slotMinTime: (first.gridWindow || first.dayWindow).start + ":00",
+    slotMaxTime: (first.gridWindow || first.dayWindow).end + ":00",
+    scrollTime: first.dayWindow.start + ":00",
     editable: true,
     selectable: true,
     selectMirror: true,

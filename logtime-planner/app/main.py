@@ -98,13 +98,14 @@ def _load_week(anchor: date, force: bool = False) -> dict:
     open_since = None
     intra_error = None
     clocked: dict[date, timedelta] = {}
+    sessions: list[tuple[datetime, datetime]] = []
     if settings.ft_enabled:
         try:
             all_logtime = _cached("logtime", client.all_logtime, force)
             open_since = _cached("open", client.open_session_started_at, force)
             # Raw sessions, not the daily rollup: this is the only way to be
             # sure about a session that is still running or crosses midnight.
-            sessions = _cached(
+            sessions[:] = _cached(
                 f"sessions:{start.date()}",
                 lambda: client.sessions_between(start, end),
                 force,
@@ -118,9 +119,8 @@ def _load_week(anchor: date, force: bool = False) -> dict:
                 if start.date() <= day < end.date()
             }
 
-    # locations_stats already reflects a session that is still running — intra
-    # updates it live. Adding our own estimate on top double-counts, so we only
-    # keep open_since to show that a session is in progress.
+    # Session data already includes anything still running, so there is nothing
+    # to add on top. Kept only so the UI can say a session is in progress.
     live_hours = 0.0
 
     blocks = store.list_between(start, end)
@@ -149,6 +149,15 @@ def _load_week(anchor: date, force: bool = False) -> dict:
         "liveHours": round(live_hours, 2),
         "openSince": open_since.isoformat() if open_since else None,
         "clockedByDay": clocked_by_day,
+        "sessions": [
+            {
+                "start": begin.isoformat(),
+                "end": finish.isoformat(),
+                "hours": round((finish - begin).total_seconds() / 3600, 2),
+                "open": open_since is not None and finish >= now - timedelta(minutes=1),
+            }
+            for begin, finish in sorted(sessions)
+        ],
         "month": month,
         "blocks": [block.as_dict() for block in blocks],
         "busy": [event.as_dict() for event in busy],
@@ -157,9 +166,13 @@ def _load_week(anchor: date, force: bool = False) -> dict:
             for c in conflicts
         ],
         "intraError": intra_error,
-        "dayWindow": {
+        "dayWindow": {  # where auto-fill may place blocks
             "start": settings.day_window_start.strftime("%H:%M"),
             "end": settings.day_window_end.strftime("%H:%M"),
+        },
+        "gridWindow": {  # what the grid draws
+            "start": settings.grid_start,
+            "end": settings.grid_end,
         },
         "icloudEnabled": settings.icloud_enabled,
     }
