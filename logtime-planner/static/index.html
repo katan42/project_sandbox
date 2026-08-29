@@ -146,6 +146,7 @@
   .figure.is-planned .value { color: var(--planned); }
   .figure.is-gap .value { color: var(--warn); }
   .figure.is-done .value { color: var(--planned); }
+  .figure.is-warn .value { color: var(--warn); }
 
   .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -246,9 +247,41 @@
     color: #fff;
     padding: 2px 4px;
   }
-  .fc .plan-block .fc-event-title { font-family: var(--mono); font-size: 11px; }
+  .fc .plan-block .fc-event-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding-right: 15px; /* leave room so long titles don't run under the delete button */
+  }
+  /* FullCalendar positions .fc-event elements absolutely already, so the
+     delete button just anchors to that without needing its own position
+     context on .plan-block. */
+  .fc .plan-block .block-delete {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    line-height: 12px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.28);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .fc .plan-block .block-delete:hover { background: rgba(0, 0, 0, 0.5); }
   .fc .plan-block.conflicted {
     background: var(--warn);
+    border-left-color: #7d2f08;
+  }
+  .fc .plan-block.unlogged {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--planned) 0 6px,
+      var(--warn) 6px 12px
+    );
     border-left-color: #7d2f08;
   }
 
@@ -353,6 +386,10 @@
         <span class="value" id="v-gap">20.0</span>
         <span class="label" id="l-gap">to place</span>
       </div>
+      <div class="figure is-warn" id="fig-unlogged" style="display:none" title="Planned time that's now in the past but doesn't overlap a clocked session">
+        <span class="value" id="v-unlogged">0.0</span>
+        <span class="label">not logged</span>
+      </div>
       <div class="actions">
         <button class="action primary" id="fill">Fill the gap</button>
         <button class="action" id="refresh">Refresh from intra</button>
@@ -382,8 +419,8 @@
 
   <p class="hint">
     Drag on an empty column to place a block · drag a block to move it ·
-    grab its edge to resize · click it to delete. Grey bands are your other
-    calendars. Orange means the block clashes with one.
+    grab its edge to resize · use the × in its corner to delete it. Grey
+    bands are your other calendars. Orange means the block clashes with one.
   </p>
 
 </div>
@@ -408,6 +445,8 @@ function say(message, tone) {
   box.style.background = tone === "good" ? "#eef7f5" : "#fbf1eb";
 }
 
+// Thin fetch wrapper: every call site just awaits JSON or catches an Error
+// with the server's own message, instead of juggling response.ok everywhere.
 async function api(path, options) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -415,6 +454,8 @@ async function api(path, options) {
   });
   if (!response.ok) {
     let detail = response.statusText;
+    // FastAPI's HTTPException body is {"detail": "..."} — fall back to the
+    // plain HTTP status text if the body isn't JSON at all.
     try { detail = (await response.json()).detail || detail; } catch (e) {}
     throw new Error(detail);
   }
@@ -422,8 +463,10 @@ async function api(path, options) {
 }
 
 function drawRail(summary) {
-  const target = summary.target || 1;
+  const target = summary.target || 1;  // avoid divide-by-zero if target is ever 0
   const clockedPct = Math.min(100, (summary.clocked / target) * 100);
+  // Planned is stacked *after* clocked on the same bar, so it's capped by
+  // whatever room clocked left, not by its own share of the target alone.
   const plannedPct = Math.min(100 - clockedPct, (summary.plannedFuture / target) * 100);
   $("rail-clocked").style.width = clockedPct + "%";
   $("rail-planned").style.width = plannedPct + "%";
@@ -452,6 +495,11 @@ function drawRail(summary) {
     $("l-gap").textContent = "to place";
   }
   $("fill").disabled = summary.deficit <= 0.01;
+
+  const unloggedFig = $("fig-unlogged");
+  const missed = summary.plannedPastUnlogged || 0;
+  unloggedFig.style.display = missed > 0.01 ? "" : "none";
+  $("v-unlogged").textContent = hours(missed);
 }
 
 function drawMonth(month) {
@@ -469,13 +517,23 @@ function drawMonth(month) {
 
 function eventsFrom(week) {
   const clashing = new Set(week.conflicts.map((c) => c.blockId));
-  const planned = week.blocks.map((block) => ({
-    id: block.id,
-    start: block.start,
-    end: block.end,
-    title: hours(block.hours) + "h" + (block.note ? " " + block.note : ""),
-    classNames: clashing.has(block.id) ? ["plan-block", "conflicted"] : ["plan-block"],
-  }));
+  const unlogged = new Map((week.unlogged || []).map((u) => [u.blockId, u.hours]));
+  const planned = week.blocks.map((block) => {
+    const missed = unlogged.get(block.id);
+    const classNames = ["plan-block"];
+    if (clashing.has(block.id)) classNames.push("conflicted");
+    if (missed) classNames.push("unlogged");
+    return {
+      id: block.id,
+      start: block.start,
+      end: block.end,
+      title:
+        hours(block.hours) + "h" + (block.note ? " " + block.note : "") +
+        (missed ? ` · ${hours(missed)}h not logged` : ""),
+      classNames,
+      extendedProps: { kind: "plan" },
+    };
+  });
   // Actual sessions sit behind planned blocks: a planned block with tint under
   // it happened, one without it didn't. Tint with nothing on top is unplanned
   // time you clocked anyway.
@@ -500,6 +558,9 @@ function eventsFrom(week) {
   return actual.concat(busy).concat(planned);
 }
 
+// Custom day-header renderer (passed to FullCalendar as dayHeaderContent) so
+// each column can show its clocked-hours tally under the weekday/date —
+// FullCalendar's built-in header has no slot for that.
 function dayHeader(arg) {
   const week = state.week;
   const clocked = week && week.clockedByDay ? week.clockedByDay[dayKey(arg.date)] || 0 : 0;
@@ -540,6 +601,9 @@ function paint(week) {
   state.calendar.removeAllEvents();
   eventsFrom(week).forEach((event) => state.calendar.addEvent(event));
 
+  // dayHeaderContent only re-runs when FullCalendar's date range changes, not
+  // on every paint() — so the per-day tallies have to be patched by hand here
+  // whenever fresh data comes in without the visible week changing.
   document.querySelectorAll(".fc-col-header-cell").forEach((cell) => {
     const iso = cell.getAttribute("data-date");
     const tally = cell.querySelector(".tally");
@@ -551,7 +615,7 @@ function paint(week) {
 }
 
 async function refresh(force) {
-  if (state.busy) return;
+  if (state.busy) return;  // drop overlapping refreshes instead of racing them
   state.busy = true;
   try {
     const query = new URLSearchParams();
@@ -565,7 +629,30 @@ async function refresh(force) {
   }
 }
 
+// The server never rejects a backdated block — it's your call, not a rule —
+// but a slip of the mouse landing on last Tuesday deserves a chance to back out.
+function currentNow() {
+  return state.week ? new Date(state.week.now) : new Date();
+}
+
+// Shared by the block's own delete button (there's only one way to delete a
+// block, so no reason to duplicate the confirm/DELETE/refresh sequence).
+async function deleteBlock(id, title) {
+  if (!confirm("Delete this " + title + " block?")) return;
+  try {
+    await api("/api/blocks/" + id, { method: "DELETE" });
+    await refresh();
+  } catch (error) { say(error.message); }
+}
+
 async function move(info) {
+  const now = currentNow();
+  const wasPast = info.oldEvent.start < now;
+  const willBePast = info.event.start < now;
+  if (willBePast && !wasPast && !confirm("That moves the block into the past — backdate it anyway?")) {
+    info.revert();
+    return;
+  }
   try {
     await api("/api/blocks/" + info.event.id, {
       method: "PATCH",
@@ -586,21 +673,58 @@ async function boot() {
   state.calendar = new FullCalendar.Calendar($("grid"), {
     initialView: "timeGridWeek",
     initialDate: first.weekStart,
-    firstDay: new Date(first.weekStart).getDay(),
+    firstDay: new Date(first.weekStart).getDay(),  // matches WEEK_START_DAY from the server
     allDaySlot: false,
     nowIndicator: true,
     height: "auto",
     expandRows: true,
-    slotDuration: "00:30:00",
-    snapDuration: "00:15:00",
+    slotDuration: "00:30:00",  // grid line every 30 minutes
+    snapDuration: "00:15:00",  // but drag/resize snaps to 15-minute increments
+    // gridWindow is what the grid *draws* (usually the full day); dayWindow is
+    // the narrower range auto-fill is allowed to place into. Fall back to
+    // dayWindow if an older server response doesn't send gridWindow at all.
     slotMinTime: (first.gridWindow || first.dayWindow).start + ":00",
     slotMaxTime: (first.gridWindow || first.dayWindow).end + ":00",
-    scrollTime: first.dayWindow.start + ":00",
+    scrollTime: first.dayWindow.start + ":00",  // open scrolled to the useful part of the day
     editable: true,
     selectable: true,
-    selectMirror: true,
-    eventOverlap: true,
+    selectMirror: true,  // show a live preview of the block while dragging out a selection
+    // Planned blocks may never overlap each other (it would double-count
+    // hours). Busy/actual events are FullCalendar events too, not exempt from
+    // eventOverlap/selectOverlap by default, so the check must be scoped: only
+    // reject landing on top of another plan-block, never on a busy/actual one.
+    eventOverlap: (stillEvent) => stillEvent.extendedProps.kind !== "plan",
+    selectOverlap: (stillEvent) => stillEvent.extendedProps.kind !== "plan",
     dayHeaderContent: dayHeader,
+    // Plan-blocks get a small delete button in the corner instead of
+    // relying on a click-anywhere-on-the-block gesture, which was too easy
+    // to trigger by accident while dragging. Busy/actual events fall
+    // through to FullCalendar's normal rendering (return true).
+    eventContent: (arg) => {
+      if (arg.event.extendedProps.kind !== "plan") return true;
+      const wrap = document.createElement("div");
+      wrap.className = "plan-block-inner";
+      // arg.timeText is FullCalendar's own formatted "start - end" label —
+      // the same one the default renderer would have shown; overriding
+      // eventContent means building it back by hand instead of losing it.
+      const time = document.createElement("div");
+      time.className = "fc-event-time";
+      time.textContent = arg.timeText;
+      const title = document.createElement("div");
+      title.className = "fc-event-title";
+      title.textContent = arg.event.title;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "block-delete";
+      del.title = "Delete block";
+      del.textContent = "×";
+      del.onclick = (evt) => {
+        evt.stopPropagation();  // don't let this reach the block's own drag/select handling
+        deleteBlock(arg.event.id, arg.event.title);
+      };
+      wrap.append(time, title, del);
+      return { domNodes: [wrap] };
+    },
     // The calendar owns navigation. When its range changes we fetch data for
     // whatever it is now showing — no gotoDate from our side, so no fighting.
     datesSet: (info) => {
@@ -610,6 +734,10 @@ async function boot() {
       refresh();
     },
     select: async (info) => {
+      if (info.start < currentNow() && !confirm("That block starts in the past — plan it anyway?")) {
+        state.calendar.unselect();
+        return;
+      }
       try {
         await api("/api/blocks", {
           method: "POST",
@@ -621,14 +749,8 @@ async function boot() {
     },
     eventDrop: move,
     eventResize: move,
-    eventClick: async (info) => {
-      if (info.event.display === "background") return;
-      if (!confirm("Delete this " + info.event.title + " block?")) return;
-      try {
-        await api("/api/blocks/" + info.event.id, { method: "DELETE" });
-        await refresh();
-      } catch (error) { say(error.message); }
-    },
+    // No eventClick handler: deleting is now the dedicated button's job, and
+    // there's nothing else a plain click on a block should do.
   });
 
   state.calendar.render();
@@ -670,12 +792,11 @@ $("pull").onclick = async () => {
     const query = state.anchor ? "?date_=" + state.anchor : "";
     const result = await api("/api/pull" + query, { method: "POST" });
     await refresh();
-    say(
-      result.removed
-        ? `Removed ${result.removed} block(s) you deleted in Calendar.`
-        : "Nothing deleted in Calendar — already in sync.",
-      "good"
-    );
+    const parts = [];
+    if (result.moved) parts.push(`moved ${result.moved}`);
+    if (result.removed) parts.push(`removed ${result.removed}`);
+    if (result.skipped) parts.push(`${result.skipped} skipped (would overlap)`);
+    say(parts.length ? parts.join(", ") + "." : "Already in sync with Calendar.", "good");
   } catch (error) { say(error.message); }
   finally { $("pull").disabled = false; }
 };

@@ -13,6 +13,8 @@ load_dotenv()
 
 
 def _csv(name: str) -> list[str]:
+    """Read a comma-separated env var into a list, dropping blank entries
+    (so a trailing comma or an unset var don't leave `[""]` around)."""
     raw = os.getenv(name, "")
     return [part.strip() for part in raw.split(",") if part.strip()]
 
@@ -22,7 +24,7 @@ def _time(name: str, default: str) -> time:
     return time(int(hour), int(minute))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True)  # frozen: config is read once at import and never mutated
 class Settings:
     ft_uid: str = os.getenv("FT_UID", "")
     ft_secret: str = os.getenv("FT_SECRET", "")
@@ -63,6 +65,7 @@ class Settings:
 
     @property
     def icloud_enabled(self) -> bool:
+        # No separate on/off flag — presence of both credentials *is* "enabled".
         return bool(self.icloud_username and self.icloud_app_password)
 
     @property

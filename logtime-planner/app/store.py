@@ -47,7 +47,7 @@ class Block:
 
 def _connect() -> sqlite3.Connection:
     connection = sqlite3.connect(settings.db_path)
-    connection.row_factory = sqlite3.Row
+    connection.row_factory = sqlite3.Row  # rows behave like dicts, so row["start_at"] works
     return connection
 
 
@@ -67,6 +67,9 @@ def _row_to_block(row: sqlite3.Row) -> Block:
 
 
 def list_between(start: datetime, end: datetime) -> list[Block]:
+    # Standard interval-overlap query: any block that touches [start, end),
+    # not just ones fully contained in it — a block straddling the boundary
+    # still needs to show up.
     with _connect() as connection:
         rows = connection.execute(
             "SELECT * FROM blocks WHERE start_at < ? AND end_at > ? ORDER BY start_at",
@@ -94,6 +97,8 @@ def create(start: datetime, end: datetime, note: str = "") -> Block:
 
 
 def update(block_id: str, start: datetime, end: datetime, note: str | None = None):
+    # pushed_at is always cleared here: any edit means the iCloud copy (if
+    # there is one) is now stale until the next push.
     with _connect() as connection:
         if note is None:
             connection.execute(

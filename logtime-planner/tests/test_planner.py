@@ -85,6 +85,19 @@ def test_summary_splits_past_and_future_plans():
     assert summary.deficit_hours == 8
 
 
+def test_summary_splits_a_block_currently_in_progress():
+    """A block you're mid-way through shouldn't count its already-elapsed
+    portion as still 'planned' — that slice is already sitting in clocked,
+    from whatever session intra says is open right now."""
+    now = at(5, 11)
+    blocks = [FakeBlock("live", at(5, 9), at(5, 13))]  # 9am-1pm, now is 11am
+    summary = planner.summarise(20, {date(2026, 8, 5): timedelta(hours=2)}, blocks, now)
+    assert summary.clocked_hours == 2
+    assert summary.planned_future_hours == 2  # only the remaining 11am-1pm
+    assert summary.planned_past_hours == 2  # the elapsed 9am-11am
+    assert summary.covered_hours == 4  # not 6 — the overlap isn't double-counted
+
+
 def test_the_friday_shortfall_scenario():
     """Planned 4h Fri / 8h Sat / 8h Sun. Only clocked 3h on Friday.
     By Saturday morning the gap should be 17h, not 20h or 12h."""
@@ -114,6 +127,42 @@ def test_hours_by_day_totals_multiple_sessions():
         [(at(22, 9), at(22, 11, 30)), (at(22, 14), at(22, 17))], TZ
     )
     assert split[date(2026, 8, 22)] == timedelta(hours=5, minutes=30)
+
+
+def test_flag_unlogged_ignores_fully_clocked_blocks():
+    block = FakeBlock("b1", at(3, 9), at(3, 11))
+    flagged = planner.flag_unlogged([block], [(at(3, 9), at(3, 11))], now=at(3, 12))
+    assert flagged == []
+
+
+def test_flag_unlogged_catches_a_block_with_no_session_at_all():
+    block = FakeBlock("b1", at(3, 9), at(3, 11))
+    flagged = planner.flag_unlogged([block], [], now=at(3, 12))
+    assert len(flagged) == 1
+    assert flagged[0].block_id == "b1"
+    assert flagged[0].hours == 2
+
+
+def test_flag_unlogged_measures_the_partial_gap():
+    block = FakeBlock("b1", at(3, 9), at(3, 13))
+    # Only clocked the first half of the planned block.
+    flagged = planner.flag_unlogged([block], [(at(3, 9), at(3, 11))], now=at(3, 14))
+    assert flagged[0].hours == 2
+
+
+def test_flag_unlogged_skips_blocks_not_due_yet():
+    block = FakeBlock("b1", at(3, 9), at(3, 11))
+    flagged = planner.flag_unlogged([block], [], now=at(3, 8))
+    assert flagged == []
+
+
+def test_flag_unlogged_tolerates_a_small_gap():
+    block = FakeBlock("b1", at(3, 9), at(3, 11))
+    # Clocked out two minutes early — well inside the default 5-minute tolerance.
+    flagged = planner.flag_unlogged(
+        [block], [(at(3, 9), at(3, 10, 58))], now=at(3, 12)
+    )
+    assert flagged == []
 
 
 def test_autofill_closes_the_gap_within_day_caps():

@@ -58,9 +58,15 @@ closes. Earliest-first rather than largest-window-first, because hours banked
 early can't be lost to a cancelled Sunday. It respects `MAX_HOURS_PER_DAY`
 (counting hours already clocked that day), won't place a block shorter than
 `MIN_BLOCK_MINUTES` unless doing so finishes the job, rounds down to the
-nearest 15 minutes, and never overshoots the deficit.
+nearest 15 minutes, and never overshoots the deficit. Every calendar event it
+treats as blocked is padded by `TRAVEL_BUFFER_MINUTES` on both sides, so it
+never lands a suggestion flush against a meeting.
 
 It targets the **weekly** figure only. The monthly target is a readout.
+
+Planned blocks may never overlap each other — enforced both in the grid
+(`eventOverlap`/`selectOverlap`, scoped to plan-blocks only so busy/actual
+events underneath are unaffected) and server-side on every create/edit.
 
 ### Calendar sync
 
@@ -69,12 +75,30 @@ Both directions are manual, and asymmetric:
 - **Push** rewrites the plan calendar for the week from the database. Event
   UIDs derive from block ids, so re-pushing updates in place rather than
   duplicating. Titles are the block's note, or `42 planned hours`.
-- **Pull** deletes database blocks whose calendar events are gone. It only ever
-  touches blocks with `pushed_at` set — a block you just created and haven't
-  synced yet is absent from iCloud for an innocent reason.
+- **Pull** reconciles the other way: for each previously-pushed block, if its
+  iCloud event is gone the database block is deleted; if the event's time has
+  changed, the database block adopts the new time — unless that would overlap
+  another block, in which case it's left alone and reported as skipped. It
+  only ever touches blocks with `pushed_at` set — a block you just created and
+  haven't synced yet is absent from iCloud for an innocent reason, not a
+  deletion.
 
-Time edits made in Calendar.app are overwritten on the next push. The plan
-calendar is a rendering of the database, not an input.
+Time edits made in Calendar.app are picked up by the *next pull*, not
+automatically — until then, or if you push first, they're overwritten. The
+plan calendar is a rendering of the database that pull can also read back
+from, not a fully independent input.
+
+### Past-vs-planned reconciliation
+
+Two more checks run once intra is configured:
+
+- A block straddling `now` only counts its remaining half toward the weekly
+  and monthly "planned" totals — the elapsed half is already inside `clocked`,
+  so counting both would double it (`planner.split_future_past`).
+- A block whose end time has passed is checked against actual clocked
+  sessions; any part left uncovered (beyond a 5-minute tolerance) is flagged
+  "unlogged" — shown hatched on the grid and rolled into the *not logged*
+  figure (`planner.flag_unlogged`).
 
 ---
 
@@ -108,7 +132,7 @@ network; only **Refresh from intra** (`?refresh=true`) bypasses the cache.
 | `DELETE` | `/api/blocks/{id}` | Delete a block |
 | `POST` | `/api/rebalance?date_=` | Auto-fill the deficit |
 | `POST` | `/api/push?date_=` | Write the week to iCloud |
-| `POST` | `/api/pull?date_=` | Reconcile deletions from iCloud |
+| `POST` | `/api/pull?date_=` | Reconcile moves and deletions from iCloud |
 | `GET` | `/api/health` | Config status and secret expiry |
 
 `date_` is any date inside the week you want; it's resolved to week bounds
@@ -123,7 +147,8 @@ server-side. Omit it for the current week.
   "now":       "2026-08-23T00:55:18+08:00",
   "timezone":  "Asia/Singapore",
   "summary":   { "target": 20, "clocked": 11.3, "plannedFuture": 0,
-                 "plannedPast": 0, "deficit": 8.7, "covered": 11.3 },
+                 "plannedPast": 0, "plannedPastUnlogged": 0,
+                 "deficit": 8.7, "covered": 11.3 },
   "month":     { "target": 90, "clocked": 70.7, "planned": 0,
                  "remaining": 19.3, "daysLeft": 9, "label": "August" },
   "clockedByDay": { "2026-08-18": 5.1, "2026-08-19": 0.3 },
@@ -133,7 +158,9 @@ server-side. Omit it for the current week.
                    "source": "Work" } ],
   "conflicts": [ { "blockId": "...", "reason": "overlaps",
                    "against": "Class (Work)" } ],
+  "unlogged":  [ { "blockId": "...", "hours": 1.5 } ],
   "dayWindow": { "start": "08:00", "end": "23:00" },
+  "gridWindow": { "start": "00:00", "end": "24:00" },
   "openSince": null,
   "liveHours": 0.0,
   "intraError": null,

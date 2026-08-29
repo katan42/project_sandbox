@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from . import store
-from .calendars import plan_calendar
+from .calendars import _as_datetime, plan_calendar
 from .config import settings
 
 UID_SUFFIX = "@logtime-planner.local"
@@ -52,29 +52,68 @@ def _ics(block: store.Block) -> str:
 
 
 def pull_week(start: datetime, end: datetime) -> dict:
-    """Notice blocks you deleted in Calendar.app and drop them from the database.
+    """Reconcile the database with what is actually on the iCloud plan calendar:
+    adopt blocks you moved there, and drop ones you deleted.
 
-    Only ever deletes blocks that were previously pushed. A block you just made
+    Only ever touches blocks that were previously pushed. A block you just made
     in the planner and haven't synced yet is absent from iCloud for an innocent
-    reason, and must not be mistaken for a deletion.
+    reason, and must not be mistaken for a deletion. A moved block is skipped
+    (left at its old time) rather than adopted if the new time would overlap
+    another block — planned blocks may never overlap.
     """
     if not settings.icloud_enabled:
         return {"ok": False, "detail": "iCloud credentials are not configured."}
 
     calendar = plan_calendar()
-    still_there: set[str] = set()
+    # Map block id -> its current (start, end) in iCloud, but only for events
+    # this app created (UID carries our suffix) — anything else on the plan
+    # calendar isn't ours to reconcile.
+    found: dict[str, tuple[datetime, datetime]] = {}
     for existing in calendar.search(start=start, end=end, event=True):
-        uid = str(existing.icalendar_component.get("UID", ""))
-        if uid.endswith(UID_SUFFIX):
-            still_there.add(uid[: -len(UID_SUFFIX)])
+        component = existing.icalendar_component
+        uid = str(component.get("UID", ""))
+        if not uid.endswith(UID_SUFFIX):
+            continue
+        if not component.get("DTSTART") or not component.get("DTEND"):
+            continue
+        found[uid[: -len(UID_SUFFIX)]] = (
+            _as_datetime(component["DTSTART"].dt),
+            _as_datetime(component["DTEND"].dt),
+        )
 
     removed = 0
+    moved = 0
+    skipped = 0
     for block in store.list_between(start, end):
-        if block.pushed_at and block.id not in still_there:
-            store.delete(block.id)
+        if not block.pushed_at:
+            continue  # never synced yet — its absence from iCloud is expected
+        if block.id not in found:
+            store.delete(block.id)  # was pushed before, gone now — you deleted it
             removed += 1
+            continue
 
-    return {"ok": True, "removed": removed}
+        new_start, new_end = found[block.id]
+        if new_start == block.start and new_end == block.end:
+            continue  # unchanged, nothing to reconcile
+
+        # Adopting the iCloud time might now overlap a different block — check
+        # before committing to it, same rule the API enforces on manual edits.
+        clash = next(
+            (
+                other
+                for other in store.list_between(new_start, new_end)
+                if other.id != block.id
+            ),
+            None,
+        )
+        if clash is not None:
+            skipped += 1
+            continue
+
+        store.update(block.id, new_start, new_end)
+        moved += 1
+
+    return {"ok": True, "removed": removed, "moved": moved, "skipped": skipped}
 
 
 def push_week(start: datetime, end: datetime) -> dict:
@@ -90,13 +129,15 @@ def push_week(start: datetime, end: datetime) -> dict:
     for existing in calendar.search(start=start, end=end, event=True):
         component = existing.icalendar_component
         uid = str(component.get("UID", ""))
+        # One of our events whose block no longer exists in this week —
+        # e.g. it was deleted in the planner since the last push.
         if uid.endswith(UID_SUFFIX) and uid not in wanted:
             existing.delete()
             removed += 1
 
     written = 0
     for block in blocks:
-        calendar.save_event(_ics(block))
+        calendar.save_event(_ics(block))  # same UID each time, so this is an upsert
         store.mark_pushed(block.id)
         written += 1
 

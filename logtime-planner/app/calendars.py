@@ -66,6 +66,8 @@ def _google_busy(start: datetime, end: datetime) -> list[BusyEvent]:
             continue
 
         name = str(calendar.get("X-WR-CALNAME", "Google"))
+        # `recurring_ical_events` expands any RRULE into concrete occurrences
+        # within [start, end) — the raw feed only has the rule once.
         for event in recurring_ical_events.of(calendar).between(start, end):
             events.append(
                 BusyEvent(
@@ -108,6 +110,8 @@ def _icloud_busy(start: datetime, end: datetime) -> list[BusyEvent]:
         return []
 
     plan_name = settings.icloud_plan_calendar.strip().lower()
+    # Empty ICLOUD_BUSY_CALENDARS means "every calendar counts as busy"; a
+    # non-empty list narrows it down to just those named.
     allowed = {name.strip().lower() for name in settings.icloud_busy_calendars}
 
     events: list[BusyEvent] = []
@@ -118,7 +122,7 @@ def _icloud_busy(start: datetime, end: datetime) -> list[BusyEvent]:
         if allowed and name.strip().lower() not in allowed:
             continue
         try:
-            found = calendar.search(start=start, end=end, event=True, expand=True)
+            found = calendar.search(start=start, end=end, event=True, expand=True)  # expand=True unrolls recurring events too
         except Exception as exc:
             events.append(BusyEvent(start, start, f"{name}: {exc}", "error"))
             continue
@@ -128,6 +132,8 @@ def _icloud_busy(start: datetime, end: datetime) -> list[BusyEvent]:
             if not component.get("DTSTART"):
                 continue
             begins = _as_datetime(component["DTSTART"].dt)
+            # DTEND is the normal case; DURATION is a valid but rarer
+            # alternative in the iCalendar spec; otherwise just guess an hour.
             if component.get("DTEND"):
                 finishes = _as_datetime(component["DTEND"].dt)
             elif component.get("DURATION"):
@@ -153,6 +159,8 @@ def busy_between(start: datetime, end: datetime) -> list[BusyEvent]:
 
 def week_bounds(anchor: date) -> tuple[datetime, datetime]:
     """The logtime week containing `anchor`, as local-midnight boundaries."""
+    # `weekday()` is 0=Monday..6=Sunday; this finds how many days back from
+    # `anchor` the configured week-start day is, then walks back to it.
     offset = (anchor.weekday() - settings.week_start_day) % 7
     first = anchor - timedelta(days=offset)
     start = datetime.combine(first, time.min, tzinfo=settings.tz)

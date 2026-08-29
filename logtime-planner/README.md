@@ -95,19 +95,29 @@ Want `"intra": true`, `"icloud": true`, a non-zero `googleFeeds`, and a
 
 | You do | It does |
 | --- | --- |
-| Drag on an empty column | Places a block |
+| Drag on an empty column | Places a block — it can't land on top of another block |
 | Drag a block | Moves it, recomputes the gap |
 | Grab a block's edge | Resizes it |
-| Click a block | Deletes it |
-| **Fill the gap** | Auto-places blocks in the earliest free time until the week is covered |
+| Click the **×** in a block's corner | Deletes it |
+| Place or drag a block into the past | Asks you to confirm first — nothing forbids it, it's just a safety check |
+| **Fill the gap** | Auto-places blocks in the earliest free time until the week is covered, keeping a `TRAVEL_BUFFER_MINUTES` gap around every calendar event |
 | **Refresh from intra** | Pulls your real clocked hours |
 | **Send to iCloud** | Makes the plan calendar match the grid |
-| **Sync from iCloud** | Removes blocks you deleted in Calendar.app |
+| **Sync from iCloud** | Adopts blocks you moved in Calendar.app, removes ones you deleted there |
 
 The rail across the top is the week: solid navy is hours intra says you've done,
 hatched teal is planned-but-not-yet-done, and the gap to the finish line is
-what's unaccounted for. Below it, the month strip tracks the same thing against
-`MONTHLY_TARGET_HOURS` (default 90) with days remaining in the month.
+what's unaccounted for. A block you're currently in the middle of only counts
+its *remaining* time toward that gap — the elapsed half is already inside
+"done", so it isn't counted twice. Below the rail, the month strip tracks the
+same thing against `MONTHLY_TARGET_HOURS` (default 90) with days remaining in
+the month.
+
+A fifth figure, **not logged**, shows up once a planned block's time has
+passed without a matching clocked session covering it — the block itself gets
+a hatched border on the grid too, so you can see exactly which slot slipped.
+This only works once intra is configured; without it there's nothing to
+compare the plan against.
 
 Grey bands are your other calendars. A block turns orange when it overlaps one,
 or starts so soon after one ends that you couldn't get there
@@ -142,21 +152,34 @@ it. Sessions crossing midnight are split at the day boundary. Sanity check: the
 big weekly number should always equal the sum of the day-header tallies.
 
 **The iCloud sync is manual in both directions.** Push rewrites the plan
-calendar from the database; pull deletes database blocks whose calendar events
-are gone. Pull only ever touches blocks that were previously pushed, so a block
-you just made and haven't synced isn't mistaken for a deletion. Edits you make
-to event *times* in Calendar.app are overwritten on the next push — move blocks
-in the planner, not in Calendar.
+calendar from the database. Pull reconciles the other way: it adopts a block's
+new time if you moved it in Calendar.app, and deletes the database block if
+you removed it there. Either way, pull only ever touches blocks that were
+previously pushed, so a block you just made and haven't synced isn't mistaken
+for a deletion. A moved block is left where it was, not adopted, if the new
+time would land it on top of another block.
+
+**Two planned blocks can never occupy the same time.** The grid won't let you
+drop or drag one on top of another (busy calendar events and your own clocked
+sessions are exempt — those are just shown underneath, not blocked against),
+and the API rejects it too if you somehow get past the grid.
+
+**A block you're mid-way through only counts its remaining half.** If a 9am–1pm
+block is still running at 11am, the 9–11 slice is already reflected in
+`clocked`, so counting the whole 4h as still-planned would double-count that
+overlap. `planner.split_future_past()` is what splits it at `now`.
+
+**Past blocks that didn't happen get flagged, not silently dropped.** Once a
+block's end time passes, `planner.flag_unlogged()` checks whether a clocked
+session actually covered it. Anything left uncovered (with a five-minute
+tolerance for intra's own rounding) shows up hatched on the grid and rolled
+into the *not logged* figure.
 
 **The grid and auto-fill have separate hours.** `GRID_START`/`GRID_END` control
 what the week grid draws — set them to `00:00` and `24:00` to see overnight
 sessions. `DAY_WINDOW_START`/`DAY_WINDOW_END` control where **Fill the gap** may
 place blocks, so widening the grid doesn't get you scheduled at 4am. The grid
 scrolls to the auto-fill start on open.
-
-**Confirm your campus's week.** `WEEK_START_DAY` defaults to Monday and the
-target is a plain calendar-week sum. Some campuses use a rolling window; if
-yours does, `summarise()` in `app/planner.py` is the only thing to change.
 
 **Rate limits.** Intra allows roughly 2 requests/second, 1200/hour. Network
 results are cached two minutes per week, and one `locations_stats` call feeds
@@ -214,6 +237,65 @@ tallies. If it doesn't, that's a bug, not a rounding artefact.
 
 ---
 
+## Architecture
+
+Three read-only sources feed one read/write local store, and the browser only
+ever sees the result of that merge — it never talks to intra, Google, or
+iCloud directly:
+
+```
+intra /locations ──┐
+                    ├──► app/main.py ──► GET /api/week ──► browser (FullCalendar)
+Google .ics feeds ──┤        │                                    │
+iCloud CalDAV ──────┘        │                                    │ drag / resize / delete
+                          SQLite ◄──── POST/PATCH/DELETE /api/blocks
+                        (app/store.py)     │
+                              └──► app/caldav_sync.py ──► iCloud "42 Plan" calendar
+```
+
+What each module owns:
+
+- **`app/planner.py`** is the only module with real logic in it, and it's
+  deliberately free of I/O — no database, no network, no reading the clock
+  itself (`now` is always passed in). That's what makes it unit-testable
+  without a server running. It's where interval merging/subtraction lives,
+  where free windows for auto-fill get computed, where calendar conflicts are
+  detected, where a block straddling `now` gets split into its
+  already-elapsed and still-ahead halves (so an in-progress block can't
+  double-count itself against `clocked`), where past blocks get checked
+  against actual sessions to flag ones that never happened, and where the
+  auto-fill placement algorithm itself runs.
+- **`app/main.py`** is the HTTP layer. It wires a request into
+  `planner`/`store`/`caldav_sync`, wraps every slow call (intra, CalDAV,
+  `.ics` fetches) in a short-TTL cache so dragging a block never re-hits the
+  network, and is where rules that span multiple pieces live — "two blocks
+  can't overlap," "auto-fill keeps a travel buffer around calendar events."
+- **`app/store.py`** is the only thing that touches the SQLite file. Every
+  edit clears a block's `pushed_at`, which is how `caldav_sync.py` later knows
+  that block is now stale in iCloud.
+- **`app/calendars.py`** turns Google `.ics` feeds and iCloud CalDAV calendars
+  into one flat list of busy intervals, expanding recurring events (`RRULE`)
+  along the way. Read-only — it never writes anywhere.
+- **`app/caldav_sync.py`** is the only thing that writes to iCloud, and only
+  to the one calendar named in `ICLOUD_PLAN_CALENDAR` — it refuses to create
+  that calendar itself, so it can never write somewhere unintended. It matches
+  database blocks to calendar events by a UID derived from the block's own id,
+  which is what makes push idempotent and pull able to tell "you deleted this"
+  from "you never synced this" apart.
+- **`app/config.py`** reads `.env` once into a frozen `Settings` object at
+  import time. Nothing re-reads the environment after startup.
+- **`static/index.html`** is the entire frontend — one file, FullCalendar for
+  the grid, no build step or framework. It only ever talks to the backend
+  through the `/api/*` JSON endpoints; there's no server-rendered state beyond
+  the static HTML shell.
+
+The browser never computes an hours total itself — the rail, the month strip,
+the *not logged* figure, every conflict/overlap flag, all arrive pre-computed
+from `/api/week`. That keeps the hours math in exactly one place, and that
+place is what `tests/test_planner.py` covers.
+
+---
+
 ## Layout
 
 ```
@@ -242,7 +324,7 @@ logtime-planner/
 responsibilities, the full configuration reference, and known limits.
 
 ```bash
-python3 tests/test_planner.py     # 12 passed
+python3 tests/test_planner.py     # 18 passed
 ```
 
 ## Where to take it next

@@ -18,14 +18,14 @@ def merge(intervals: list[Interval]) -> list[Interval]:
     """Collapse overlapping or touching intervals into a minimal set."""
     if not intervals:
         return []
-    ordered = sorted(intervals, key=lambda pair: pair[0])
+    ordered = sorted(intervals, key=lambda pair: pair[0])  # sweep left to right
     merged = [ordered[0]]
     for start, end in ordered[1:]:
         last_start, last_end = merged[-1]
-        if start <= last_end:
-            merged[-1] = (last_start, max(last_end, end))
+        if start <= last_end:  # touches or overlaps the interval being built
+            merged[-1] = (last_start, max(last_end, end))  # stretch it to cover both
         else:
-            merged.append((start, end))
+            merged.append((start, end))  # disjoint — starts a new interval
     return merged
 
 
@@ -33,18 +33,18 @@ def subtract(window: Interval, blocked: list[Interval]) -> list[Interval]:
     """What is left of `window` once every blocked interval is removed."""
     window_start, window_end = window
     free: list[Interval] = []
-    cursor = window_start
+    cursor = window_start  # how far into the window we've accounted for so far
     for start, end in merge(blocked):
         if end <= cursor or start >= window_end:
-            continue
+            continue  # this blocked interval doesn't touch the window at all
         if start > cursor:
-            free.append((cursor, min(start, window_end)))
-        cursor = max(cursor, end)
+            free.append((cursor, min(start, window_end)))  # gap before this block
+        cursor = max(cursor, end)  # jump the cursor past the block
         if cursor >= window_end:
-            break
+            break  # nothing left of the window to check
     if cursor < window_end:
-        free.append((cursor, window_end))
-    return [pair for pair in free if pair[1] > pair[0]]
+        free.append((cursor, window_end))  # whatever's left after the last block
+    return [pair for pair in free if pair[1] > pair[0]]  # drop any zero-length gaps
 
 
 def free_windows(
@@ -63,12 +63,12 @@ def free_windows(
         opens = datetime.combine(day, day_start, tzinfo=tz)
         closes = datetime.combine(day, day_end, tzinfo=tz)
         if not_before and not_before > opens:
-            opens = not_before
+            opens = not_before  # never suggest a slot that's already passed
         if opens >= closes:
-            continue
+            continue  # this day's window is already over (or not_before pushed past it)
         for gap in subtract((opens, closes), blocked):
             if (gap[1] - gap[0]).total_seconds() / 60 >= min_minutes:
-                windows.append(gap)
+                windows.append(gap)  # long enough to be worth suggesting
     return windows
 
 
@@ -87,10 +87,10 @@ def hours_by_day(
             midnight = datetime.combine(
                 cursor.date() + timedelta(days=1), time.min, tzinfo=tz
             )
-            segment_end = min(finish, midnight)
+            segment_end = min(finish, midnight)  # stop at midnight, or the session's own end
             day = cursor.date()
             totals[day] = totals.get(day, timedelta()) + (segment_end - cursor)
-            cursor = segment_end
+            cursor = segment_end  # if we stopped at midnight, the loop continues into the next day
     return totals
 
 
@@ -112,16 +112,18 @@ def find_conflicts(
     for block in blocks:
         for event in busy:
             if event.source == "error":
-                continue
-            if block.start < event.end and event.start < block.end:
+                continue  # a dead calendar feed reporting an error isn't a real conflict
+            if block.start < event.end and event.start < block.end:  # classic overlap test
                 conflicts.append(
                     Conflict(block.id, "overlaps", f"{event.title} ({event.source})")
                 )
             elif timedelta(0) <= block.start - event.end < travel_buffer:
+                # block starts after the event ends, but too soon to get there
                 conflicts.append(
                     Conflict(block.id, "tight turnaround", f"after {event.title}")
                 )
             elif timedelta(0) <= event.start - block.end < travel_buffer:
+                # symmetric case: the event follows too closely after the block
                 conflicts.append(
                     Conflict(block.id, "tight turnaround", f"before {event.title}")
                 )
@@ -137,6 +139,7 @@ class WeekSummary:
 
     @property
     def deficit_hours(self) -> float:
+        # Clamped at zero — being ahead of target isn't a negative deficit.
         return max(0.0, self.target_hours - self.clocked_hours - self.planned_future_hours)
 
     @property
@@ -154,6 +157,27 @@ class WeekSummary:
         }
 
 
+def split_future_past(blocks: list, now: datetime) -> tuple[float, float]:
+    """How many planned hours are still ahead of `now` versus already behind
+    it. A block straddling `now` (started, not yet finished) splits at the
+    boundary instead of being counted whole on one side — the elapsed slice
+    is already showing up in `clocked`, so counting it as still-planned too
+    would double-count exactly that overlap."""
+    future = 0.0
+    past = 0.0
+    for block in blocks:
+        if block.end <= now:
+            past += block.hours  # entirely elapsed
+        elif block.start >= now:
+            future += block.hours  # hasn't started yet
+        else:
+            # `now` falls inside the block — split it right there.
+            elapsed = (now - block.start).total_seconds() / 3600
+            past += elapsed
+            future += block.hours - elapsed
+    return future, past
+
+
 def summarise(
     target_hours: float,
     clocked: dict[date, timedelta],
@@ -161,9 +185,37 @@ def summarise(
     now: datetime,
 ) -> WeekSummary:
     clocked_hours = sum(d.total_seconds() for d in clocked.values()) / 3600
-    future = sum(block.hours for block in blocks if block.end > now)
-    past = sum(block.hours for block in blocks if block.end <= now)
+    future, past = split_future_past(blocks, now)
     return WeekSummary(target_hours, clocked_hours, future, past)
+
+
+@dataclass
+class UnloggedBlock:
+    block_id: str
+    hours: float
+
+
+def flag_unlogged(
+    blocks: list,
+    sessions: list[Interval],
+    now: datetime,
+    tolerance_minutes: int = 5,
+) -> list[UnloggedBlock]:
+    """Past blocks whose planned time was not actually clocked, in whole or in
+    part. A block within `tolerance_minutes` of full coverage doesn't count —
+    intra's own rounding shouldn't trip a flag every single week."""
+    tolerance = tolerance_minutes / 60
+    flagged: list[UnloggedBlock] = []
+    for block in blocks:
+        if block.end > now:
+            continue  # not due yet, nothing to compare against
+        # Whatever part of the block isn't covered by a clocked session is
+        # the part that got planned but never actually happened.
+        gaps = subtract((block.start, block.end), sessions)
+        uncovered = sum((g[1] - g[0]).total_seconds() for g in gaps) / 3600
+        if uncovered > tolerance:
+            flagged.append(UnloggedBlock(block.id, round(uncovered, 2)))
+    return flagged
 
 
 def autofill(
@@ -181,6 +233,8 @@ def autofill(
     if remaining <= 0:
         return []
 
+    # used_today tracks clocked + already-planned hours per day — the basis
+    # for how much headroom is left before max_hours_per_day is hit.
     used_today: dict[date, float] = {}
     for day, duration in clocked.items():
         used_today[day] = used_today.get(day, 0.0) + duration.total_seconds() / 3600
@@ -191,16 +245,16 @@ def autofill(
     minimum = min_block_minutes / 60
     placed: list[Interval] = []
 
-    for window_start, window_end in sorted(windows, key=lambda pair: pair[0]):
+    for window_start, window_end in sorted(windows, key=lambda pair: pair[0]):  # earliest first
         if remaining <= 0.01:
-            break
+            break  # deficit closed
         day = window_start.date()
         headroom = max_hours_per_day - used_today.get(day, 0.0)
         if headroom <= 0:
-            continue
+            continue  # this day is already at its cap
 
         available = (window_end - window_start).total_seconds() / 3600
-        take = min(remaining, available, headroom)
+        take = min(remaining, available, headroom)  # bounded by whichever runs out first
 
         # A stub is only worth placing if it finishes the job.
         if take < minimum and take < remaining - 0.01:
