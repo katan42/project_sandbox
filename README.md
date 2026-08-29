@@ -26,6 +26,24 @@ I suppose Project Sandbox is a detour built with intention, shaped by every rabb
 
 ## 📦 Projects
 
+### 📅 42 Logtime Planner
+Plan the 20 hours a week required against a busy schedule — auto-filling them from the 42 intra API and live calendar data.
+
+It became a scheduling friction point: tracking study hours across multiple calendars and keeping them synchronized. Missing the 20 hours because of poor mental sum on my part. These motivated me to have a planning tool that reads actual hours from the 42 API, queries busy time from Google Calendar and iCloud (CalDAV), and lets me drag planned blocks around in the browser to sync back to a dedicated iCloud calendar.
+
+Focus areas:
+- Real-time calendar synchronisation
+- Smart block placement and conflict detection
+- Session-level tracking from 42 API
+- One-directional iCloud sync to prevent conflicts
+
+The deeper challenges weren't about calendar integration at all: reading raw location sessions (since rollups handle in-progress sessions ambiguously), splitting sessions across midnight, and keeping iCloud sync one-directional-per-action so uncommitted work is never mistaken for deletion.
+
+📂 [`logtime-planner/`](./logtime-planner)
+
+---
+
+
 ### ✅ Check Namelist  
 A CLI tool for reconciling messy attendance lists against an official namelist.
 
