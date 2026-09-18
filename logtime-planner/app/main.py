@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from . import caldav_sync, planner, store
 from .calendars import busy_between, week_bounds
 from .config import settings
-from .ft_api import FtApiError, client
+from .ft_api import SECRET_WARN_DAYS, FtApiError, client
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 CACHE_TTL_SECONDS = 120
@@ -353,7 +353,8 @@ def health():
                 else None
             )
             secret["warn"] = (
-                client.secret_days_left is not None and client.secret_days_left < 7
+                client.secret_days_left is not None
+                and client.secret_days_left < SECRET_WARN_DAYS
             )
         except FtApiError as exc:
             secret["error"] = str(exc)
@@ -366,6 +367,20 @@ def health():
         "timezone": settings.timezone,
         "secret": secret,
     }
+
+
+@app.post("/api/secret-reminder")
+def secret_reminder():
+    """Push an all-day iCloud reminder on the 42 client secret's expiry date."""
+    if client.secret_expires_on is None:
+        raise HTTPException(400, "Secret expiry isn't known yet — load /api/health first.")
+    try:
+        result = caldav_sync.push_secret_reminder(client.secret_expires_on.date())
+    except Exception as exc:
+        raise HTTPException(502, f"Could not add the iCloud reminder: {exc}")
+    if not result["ok"]:
+        raise HTTPException(400, result["detail"])
+    return result
 
 
 @app.get("/")

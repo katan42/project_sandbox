@@ -206,6 +206,32 @@
   }
   .notice:empty { display: none; }
 
+  .secret-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 4px 10px;
+    border: 1px solid var(--warn);
+    border-radius: 999px;
+    background: #fbf1eb;
+    color: var(--warn);
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .secret-flag-btn {
+    border: 1px solid var(--warn);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--warn);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .secret-flag-btn:hover { background: var(--warn); color: var(--surface); }
+  .secret-flag-btn:disabled { opacity: 0.6; cursor: default; }
+
   /* ---- Grid --------------------------------------------------------- */
 
   .grid-wrap {
@@ -360,6 +386,10 @@
   <section class="banner">
     <div class="banner-top">
       <h1 class="headline">Logtime · <span id="target-label">20</span>h week</h1>
+      <span class="secret-flag" id="secret-flag" style="display:none" title="42 client secret — regenerate at profile.intra.42.fr">
+        <span id="secret-flag-text"></span>
+        <button class="secret-flag-btn" id="secret-flag-remind" type="button" title="Add an all-day reminder to your iCloud plan calendar on the expiry date">+ remind</button>
+      </span>
       <div class="weeknav">
         <button class="step" id="prev" aria-label="Previous week">&larr;</button>
         <span class="range" id="range">&nbsp;</span>
@@ -665,10 +695,50 @@ async function move(info) {
   }
 }
 
+// Flags the 42 client secret once it's within SECRET_WARN_DAYS of expiry
+// (see app/ft_api.py) — a silent 401 one morning is worse than a nag now.
+function paintSecretFlag(secret) {
+  const flag = $("secret-flag");
+  const remindBtn = $("secret-flag-remind");
+  if (!secret || !secret.warn) {
+    flag.style.display = "none";
+    return;
+  }
+  $("secret-flag-text").textContent =
+    "⚠ 42 secret expires in " + secret.daysLeft + "d (" + secret.expiresOn + ")";
+  // The reminder is an iCloud calendar event — nothing to write it to
+  // without CalDAV creds configured.
+  remindBtn.style.display = state.week && state.week.icloudEnabled ? "" : "none";
+  remindBtn.disabled = false;
+  remindBtn.textContent = "+ remind";
+  flag.style.display = "inline-flex";
+}
+
+async function loadSecretFlag() {
+  try {
+    const health = await api("/api/health");
+    paintSecretFlag(health.secret);
+  } catch (error) { /* non-critical — leave the flag as it was */ }
+}
+
+$("secret-flag-remind").onclick = async () => {
+  const btn = $("secret-flag-remind");
+  btn.disabled = true;
+  try {
+    const result = await api("/api/secret-reminder", { method: "POST" });
+    btn.textContent = "added ✓";
+    say("Reminder added to your iCloud plan calendar for " + result.expiresOn + ".", "good");
+  } catch (error) {
+    btn.disabled = false;
+    say(error.message);
+  }
+};
+
 async function boot() {
   const first = await api("/api/week");
   state.week = first;
   state.anchor = first.weekStart.slice(0, 10);
+  loadSecretFlag();
 
   state.calendar = new FullCalendar.Calendar($("grid"), {
     initialView: "timeGridWeek",
@@ -762,7 +832,11 @@ $("next").onclick = () => state.calendar && state.calendar.next();
 
 $("refresh").onclick = async () => {
   $("refresh").disabled = true;
-  try { await refresh(true); say("Up to date with intra.", "good"); }
+  try {
+    await refresh(true);
+    await loadSecretFlag();
+    say("Up to date with intra.", "good");
+  }
   finally { $("refresh").disabled = false; }
 };
 

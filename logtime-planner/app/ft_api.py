@@ -31,6 +31,11 @@ class FtApiError(RuntimeError):
     pass
 
 
+# How many days before the 42 client secret expires that the app starts
+# flagging it (console print + UI banner via /api/health).
+SECRET_WARN_DAYS = 10
+
+
 def parse_duration(raw: str) -> timedelta:
     """'04:12:54.190362' -> timedelta."""
     match = _DURATION.match(raw.strip())
@@ -78,7 +83,7 @@ class FtClient:
                 expires_on = datetime.fromtimestamp(int(valid_until), timezone.utc)
                 self.secret_expires_on = expires_on
                 self.secret_days_left = (expires_on - datetime.now(timezone.utc)).days
-                if self.secret_days_left < 7:
+                if self.secret_days_left < SECRET_WARN_DAYS:
                     print(
                         f"[logtime] 42 client secret expires in "
                         f"{self.secret_days_left} day(s), on "

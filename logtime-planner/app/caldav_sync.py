@@ -11,13 +11,14 @@ re-pushing an unchanged block updates it in place instead of duplicating it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from . import store
 from .calendars import _as_datetime, plan_calendar
 from .config import settings
 
 UID_SUFFIX = "@logtime-planner.local"
+SECRET_REMINDER_UID_SUFFIX = "-secret-reminder@logtime-planner.local"
 
 
 def _uid(block_id: str) -> str:
@@ -49,6 +50,45 @@ def _ics(block: store.Block) -> str:
             "END:VCALENDAR",
         ]
     )
+
+
+def _secret_reminder_ics(expires_on: date) -> str:
+    """All-day event on the expiry date itself. UID is keyed off the date, so
+    clicking the button again for the same date upserts instead of
+    duplicating, but a freshly-rotated secret with a new expiry date gets its
+    own event rather than silently replacing the old one."""
+    day = expires_on.strftime("%Y%m%d")
+    next_day = (expires_on + timedelta(days=1)).strftime("%Y%m%d")
+    return "\r\n".join(
+        [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//logtime-planner//EN",
+            "BEGIN:VEVENT",
+            f"UID:{day}{SECRET_REMINDER_UID_SUFFIX}",
+            f"DTSTAMP:{datetime.now(settings.tz).strftime('%Y%m%dT%H%M%SZ')}",
+            f"DTSTART;VALUE=DATE:{day}",
+            f"DTEND;VALUE=DATE:{next_day}",
+            "SUMMARY:Renew 42 client secret (FT_SECRET)",
+            "DESCRIPTION:profile.intra.42.fr -> regenerate the app secret, then "
+            "update FT_SECRET in logtime-planner's .env",
+            "CATEGORIES:42",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ]
+    )
+
+
+def push_secret_reminder(expires_on: date) -> dict:
+    """Drop a same-day all-day reminder onto the plan calendar for when the
+    42 client secret expires — a calendar notification reaches you even when
+    the planner itself isn't open that day."""
+    if not settings.icloud_enabled:
+        return {"ok": False, "detail": "iCloud credentials are not configured."}
+
+    calendar = plan_calendar()
+    calendar.save_event(_secret_reminder_ics(expires_on))  # same UID each time, so this is an upsert
+    return {"ok": True, "expiresOn": expires_on.isoformat()}
 
 
 def pull_week(start: datetime, end: datetime) -> dict:
