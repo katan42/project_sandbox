@@ -45,7 +45,12 @@ class Settings:
     grid_end: str = os.getenv("GRID_END", "24:00")
 
     min_block_minutes: int = int(os.getenv("MIN_BLOCK_MINUTES", "60"))
-    max_hours_per_day: float = float(os.getenv("MAX_HOURS_PER_DAY", "10"))
+
+    # Two ceilings, because "how much will this thing suggest" and "how much
+    # am I allowed to commit to" are different questions. Auto-fill stops at
+    # the first; a block you drag out by hand is only stopped by the second.
+    plan_max_hours_per_day: float = float(os.getenv("PLAN_MAX_HOURS_PER_DAY", "14"))
+    manual_max_hours_per_day: float = float(os.getenv("MANUAL_MAX_HOURS_PER_DAY", "24"))
     travel_buffer_minutes: int = int(os.getenv("TRAVEL_BUFFER_MINUTES", "30"))
 
     google_ics_urls: list[str] = field(default_factory=lambda: _csv("GOOGLE_ICS_URLS"))
@@ -74,3 +79,14 @@ class Settings:
 
 
 settings = Settings()
+
+# MAX_HOURS_PER_DAY was split in two. Say so rather than silently ignoring a
+# value someone deliberately set.
+if os.getenv("MAX_HOURS_PER_DAY"):
+    print(
+        "[logtime] MAX_HOURS_PER_DAY is no longer read. It is now "
+        f"PLAN_MAX_HOURS_PER_DAY (auto-fill, currently "
+        f"{settings.plan_max_hours_per_day:g}h) and MANUAL_MAX_HOURS_PER_DAY "
+        f"(blocks you place yourself, currently "
+        f"{settings.manual_max_hours_per_day:g}h). Update your .env."
+    )

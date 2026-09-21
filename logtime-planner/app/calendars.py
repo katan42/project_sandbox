@@ -165,3 +165,25 @@ def week_bounds(anchor: date) -> tuple[datetime, datetime]:
     first = anchor - timedelta(days=offset)
     start = datetime.combine(first, time.min, tzinfo=settings.tz)
     return start, start + timedelta(days=7)
+
+
+def month_bounds(anchor: date) -> tuple[datetime, datetime]:
+    """The calendar month containing `anchor`, as local-midnight boundaries."""
+    first = anchor.replace(day=1)
+    if first.month == 12:
+        next_first = first.replace(year=first.year + 1, month=1)  # wrap into January
+    else:
+        next_first = first.replace(month=first.month + 1)
+    return (
+        datetime.combine(first, time.min, tzinfo=settings.tz),
+        datetime.combine(next_first, time.min, tzinfo=settings.tz),
+    )
+
+
+def month_of_week(week_start: date) -> date:
+    """Which month the strip above the week grid should report on.
+
+    A week straddling two months belongs to whichever holds most of it, and
+    with a seven-day week that is always the month of its midpoint.
+    """
+    return week_start + timedelta(days=3)

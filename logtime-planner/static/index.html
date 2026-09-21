@@ -187,12 +187,19 @@
     flex: 1 1 160px;
     height: 8px;
     border: 1px solid var(--rule);
+    display: flex;
     overflow: hidden;
   }
-  .mrail-fill {
-    height: 100%;
-    background: var(--clocked);
-    transition: width 220ms ease;
+  .mrail-fill { height: 100%; transition: width 220ms ease; }
+  .mrail-clocked { background: var(--clocked); }
+  /* Hatched, like the week rail's planned segment: solid means logged, and
+     nothing that is merely scheduled is allowed to look like it. */
+  .mrail-planned {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--planned) 0 5px,
+      #2ba396 5px 10px
+    );
   }
   .monthstrip .mfig { color: var(--ink); }
   .monthstrip .mfig b { font-weight: 500; }
@@ -231,6 +238,129 @@
   }
   .secret-flag-btn:hover { background: var(--warn); color: var(--surface); }
   .secret-flag-btn:disabled { opacity: 0.6; cursor: default; }
+
+  /* ---- Month-end flag ----------------------------------------------- */
+
+  /* Sits above everything else in the banner: with a week or less to go the
+     hours you still owe matter more than anything else on the page. */
+  .monthflag {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: -22px -24px 20px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--warn);
+    background: #fbf1eb;
+    color: var(--warn);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .monthflag b { font-weight: 500; font-size: 15px; }
+  .monthflag .mf-sub { color: #8a4620; font-size: 12px; }
+  .monthflag button {
+    margin-left: auto;
+    border: 1px solid var(--warn);
+    background: var(--surface);
+    color: var(--warn);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .monthflag button:hover { background: var(--warn); color: var(--surface); }
+  .monthflag button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  /* ---- Week / month tabs ---------------------------------------------- */
+
+  .tabs { display: flex; gap: -1px; }
+  .tab {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  .tab + .tab { border-left: none; }
+  .tab:hover { color: var(--ink); }
+  .tab.is-on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--surface);
+  }
+  .tab:focus-visible { outline: 2px solid var(--planned); outline-offset: 2px; }
+
+  /* ---- Month grid ------------------------------------------------------ */
+
+  /* Hand-rolled rather than FullCalendar's dayGridMonth: what this view is
+     for is one number per day (clocked vs planned), not event boxes. */
+  .monthgrid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .monthgrid .mhead {
+    background: var(--surface);
+    padding: 7px 4px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .mcell {
+    background: var(--surface);
+    min-height: 92px;
+    padding: 7px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    border: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .mcell.blank { background: #f1f3f5; cursor: default; }
+  .mcell:not(.blank):hover { background: #f6f8f9; }
+  .mcell:focus-visible { outline: 2px solid var(--planned); outline-offset: -2px; }
+  .mcell .mnum {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 16px;
+    line-height: 1;
+  }
+  .mcell.spent .mnum { color: var(--muted); }
+  .mcell.today .mnum { color: var(--planned); }
+  .mcell.today { box-shadow: inset 0 2px 0 var(--planned); }
+  .mcell .mbar { height: 6px; background: #eceef1; display: flex; overflow: hidden; }
+  .mcell .mbar i { display: block; height: 100%; }
+  .mcell .mbar .b-clocked { background: var(--clocked); }
+  .mcell .mbar .b-planned {
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--planned) 0 5px,
+      #2ba396 5px 10px
+    );
+  }
+  .mcell .mfigs {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .mcell .mfigs .din { color: var(--clocked); }
+  .mcell .mfigs .dpl { color: var(--planned); }
+  .mcell .mfigs .dmiss { color: var(--warn); }
 
   /* ---- Grid --------------------------------------------------------- */
 
@@ -377,6 +507,10 @@
     .banner { padding: 16px; }
     .actions { margin-left: 0; width: 100%; }
     .figure .value { font-size: 24px; }
+    .monthflag { margin: -16px -16px 16px; padding: 10px 16px; }
+    .mcell { min-height: 66px; padding: 5px 4px 6px; }
+    .mcell .mnum { font-size: 13px; }
+    .mcell .mfigs { font-size: 10px; }
   }
 </style>
 </head>
@@ -384,16 +518,26 @@
 <div class="shell">
 
   <section class="banner">
+    <div class="monthflag" id="month-flag" style="display:none">
+      <span id="month-flag-text"></span>
+      <span class="mf-sub" id="month-flag-sub"></span>
+      <button id="month-flag-fill" type="button" title="Plan the rest of the month up to the monthly target">Fill the month</button>
+    </div>
+
     <div class="banner-top">
-      <h1 class="headline">Logtime · <span id="target-label">20</span>h week</h1>
+      <h1 class="headline">Logtime · <span id="target-label">20</span>h <span id="target-unit">week</span></h1>
+      <div class="tabs" role="tablist" aria-label="View">
+        <button class="tab is-on" id="tab-week" role="tab" aria-selected="true">Week</button>
+        <button class="tab" id="tab-month" role="tab" aria-selected="false">Month</button>
+      </div>
       <span class="secret-flag" id="secret-flag" style="display:none" title="42 client secret — regenerate at profile.intra.42.fr">
         <span id="secret-flag-text"></span>
         <button class="secret-flag-btn" id="secret-flag-remind" type="button" title="Add an all-day reminder to your iCloud plan calendar on the expiry date">+ remind</button>
       </span>
       <div class="weeknav">
-        <button class="step" id="prev" aria-label="Previous week">&larr;</button>
+        <button class="step" id="prev" aria-label="Previous">&larr;</button>
         <span class="range" id="range">&nbsp;</span>
-        <button class="step" id="next" aria-label="Next week">&rarr;</button>
+        <button class="step" id="next" aria-label="Next">&rarr;</button>
       </div>
     </div>
 
@@ -428,9 +572,12 @@
       </div>
     </div>
 
-    <div class="monthstrip">
+    <div class="monthstrip" id="monthstrip">
       <span class="mlabel" id="m-label">Month</span>
-      <div class="mrail"><div class="mrail-fill" id="m-fill" style="width:0%"></div></div>
+      <div class="mrail" role="img" id="m-rail" aria-label="Month progress">
+        <div class="mrail-fill mrail-clocked" id="m-fill" style="width:0%"></div>
+        <div class="mrail-fill mrail-planned" id="m-fill-planned" style="width:0%"></div>
+      </div>
       <span class="mfig"><b id="m-clocked">0.0</b> / <span id="m-target">90</span>h</span>
       <span class="mfig" id="m-left">&nbsp;</span>
     </div>
@@ -445,18 +592,29 @@
       <span><i class="k-busy"></i> other calendars</span>
     </div>
     <div id="grid"></div>
+    <div id="monthgrid" class="monthgrid" style="display:none"></div>
   </div>
 
-  <p class="hint">
+  <p class="hint" id="hint-week">
     Drag on an empty column to place a block · drag a block to move it ·
     grab its edge to resize · use the × in its corner to delete it. Grey
     bands are your other calendars. Orange means the block clashes with one.
   </p>
 
+  <p class="hint" id="hint-month" style="display:none">
+    Each cell is one day: solid bar is clocked, hatched is planned. Click a
+    day to open its week and edit the plan there.
+  </p>
+
 </div>
 
 <script>
-const state = { anchor: null, week: null, calendar: null, busy: false };
+const state = {
+  view: "week",
+  anchor: null, week: null,          // week view
+  monthAnchor: null, month: null,    // month view
+  calendar: null, busy: false,
+};
 
 const $ = (id) => document.getElementById(id);
 const hours = (n) => (Math.round(n * 10) / 10).toFixed(1);
@@ -492,44 +650,82 @@ async function api(path, options) {
   return response.json();
 }
 
-function drawRail(summary) {
-  const target = summary.target || 1;  // avoid divide-by-zero if target is ever 0
-  const clockedPct = Math.min(100, (summary.clocked / target) * 100);
+// Both views draw into the same rail and the same four figures — only the
+// numbers behind them differ. `tickUnit` is how many hours one tick stands
+// for: 1h suits a 20h week, but 90 one-hour ticks would be a hatch pattern
+// rather than a scale, so the month counts in tens.
+function fillRail(target, clocked, planned, tickUnit, subject) {
+  const safe = target || 1;  // avoid divide-by-zero if target is ever 0
+  const clockedPct = Math.min(100, (clocked / safe) * 100);
   // Planned is stacked *after* clocked on the same bar, so it's capped by
   // whatever room clocked left, not by its own share of the target alone.
-  const plannedPct = Math.min(100 - clockedPct, (summary.plannedFuture / target) * 100);
+  const plannedPct = Math.min(100 - clockedPct, (planned / safe) * 100);
   $("rail-clocked").style.width = clockedPct + "%";
   $("rail-planned").style.width = plannedPct + "%";
 
+  const wanted = Math.max(1, Math.round(target / tickUnit));
   const ticks = $("rail-ticks");
-  if (ticks.childElementCount !== Math.round(target)) {
+  if (ticks.childElementCount !== wanted) {
     ticks.innerHTML = "";
-    for (let i = 0; i < Math.round(target); i++) ticks.appendChild(document.createElement("span"));
+    for (let i = 0; i < wanted; i++) ticks.appendChild(document.createElement("span"));
   }
   $("rail-region").setAttribute(
     "aria-label",
-    `${hours(summary.clocked)} hours clocked and ${hours(summary.plannedFuture)} planned of ${target}`
+    `${hours(clocked)} hours clocked and ${hours(planned)} planned of ${target} for ${subject}`
   );
+}
 
-  $("v-clocked").textContent = hours(summary.clocked);
-  $("v-planned").textContent = hours(summary.plannedFuture);
-
+function setGap(deficit, spare, gapLabel, doneLabel) {
   const gap = $("fig-gap");
-  if (summary.deficit <= 0.01) {
+  if (deficit <= 0.01) {
     gap.className = "figure is-done";
-    $("v-gap").textContent = hours(summary.covered - summary.target);
-    $("l-gap").textContent = "hours spare";
+    $("v-gap").textContent = hours(spare);
+    $("l-gap").textContent = doneLabel;
   } else {
     gap.className = "figure is-gap";
-    $("v-gap").textContent = hours(summary.deficit);
-    $("l-gap").textContent = "to place";
+    $("v-gap").textContent = hours(deficit);
+    $("l-gap").textContent = gapLabel;
   }
-  $("fill").disabled = summary.deficit <= 0.01;
+}
 
-  const unloggedFig = $("fig-unlogged");
-  const missed = summary.plannedPastUnlogged || 0;
-  unloggedFig.style.display = missed > 0.01 ? "" : "none";
+function setUnlogged(missed) {
+  $("fig-unlogged").style.display = missed > 0.01 ? "" : "none";
   $("v-unlogged").textContent = hours(missed);
+}
+
+function drawRail(summary) {
+  $("target-label").textContent = summary.target;
+  $("target-unit").textContent = "week";
+  fillRail(summary.target, summary.clocked, summary.plannedFuture, 1, "the week");
+  $("v-clocked").textContent = hours(summary.clocked);
+  $("v-planned").textContent = hours(summary.plannedFuture);
+  setGap(summary.deficit, summary.covered - summary.target, "to place", "hours spare");
+  setUnlogged(summary.plannedPastUnlogged || 0);
+  $("fill").textContent = "Fill the gap";
+  $("fill").disabled = summary.deficit <= 0.01;
+}
+
+function drawMonthReadout(month) {
+  $("target-label").textContent = month.target;
+  $("target-unit").textContent = "month";
+  fillRail(month.target, month.clocked, month.plannedFuture, 10, month.longLabel);
+  $("v-clocked").textContent = hours(month.clocked);
+  $("v-planned").textContent = hours(month.plannedFuture);
+  setGap(month.remaining, month.projected - month.target, "to place", "hours spare");
+  setUnlogged(month.unlogged || 0);
+  $("fill").textContent = "Fill the month";
+  $("fill").disabled = month.remaining <= 0.01;
+}
+
+// Three states that the old single "target met" collapsed into one, and they
+// are not the same thing: hours banked, hours merely scheduled, hours short.
+function monthVerdict(month) {
+  const days = month.daysLeft === 1 ? "1 day left" : month.daysLeft + " days left";
+  if (month.toLog <= 0.01) return "target met · " + hours(month.clocked) + "h logged";
+  if (month.remaining <= 0.01) {
+    return "covered by the plan · " + hours(month.toLog) + "h still to log · " + days;
+  }
+  return hours(month.remaining) + "h to place · " + hours(month.toLog) + "h to log · " + days;
 }
 
 function drawMonth(month) {
@@ -537,12 +733,154 @@ function drawMonth(month) {
   $("m-label").textContent = month.label;
   $("m-clocked").textContent = hours(month.clocked);
   $("m-target").textContent = month.target;
-  $("m-fill").style.width =
-    Math.min(100, (month.clocked / (month.target || 1)) * 100) + "%";
-  $("m-left").textContent =
-    month.remaining <= 0.01
-      ? "target met"
-      : hours(month.remaining) + "h to go · " + month.daysLeft + " days left";
+
+  // Same stacking rule as the week rail: solid is logged, hatched is planned.
+  // Before, this bar tracked clocked alone while the text beside it already
+  // subtracted planned hours — so planning moved the words and not the bar.
+  const target = month.target || 1;
+  const clockedPct = Math.min(100, (month.clocked / target) * 100);
+  const plannedPct = Math.min(100 - clockedPct, (month.plannedFuture / target) * 100);
+  $("m-fill").style.width = clockedPct + "%";
+  $("m-fill-planned").style.width = plannedPct + "%";
+  $("m-rail").setAttribute(
+    "aria-label",
+    `${hours(month.clocked)} hours logged and ${hours(month.plannedFuture)} planned of ${month.target} in ${month.longLabel}`
+  );
+  $("m-left").textContent = monthVerdict(month);
+}
+
+// With a week or less to go, the number that matters is how many hours still
+// have to land on intra — planned hours are not logged hours. Hidden for a
+// month that is already over (daysLeft 0), where there is nothing to act on.
+function drawMonthFlag(month) {
+  const flag = $("month-flag");
+  if (!month || month.daysLeft < 1 || month.daysLeft > 7 || month.toLog <= 0.01) {
+    flag.style.display = "none";
+    return;
+  }
+  const days = month.daysLeft === 1 ? "1 day" : month.daysLeft + " days";
+  $("month-flag-text").innerHTML = "";
+  const lead = document.createElement("b");
+  lead.textContent = `${hours(month.toLog)}h still to log in ${month.label}`;
+  $("month-flag-text").append("\u26a0 " + days + " left · ", lead);
+  $("month-flag-sub").textContent =
+    (month.remaining > 0.01
+      ? `${hours(month.remaining)}h of that isn't on the grid yet`
+      : "all of it is planned") + ` · ${hours(month.perDay)}h a day to finish`;
+  $("month-flag-fill").style.display = month.remaining > 0.01 ? "" : "none";
+  $("month-flag-fill").disabled = false;
+  flag.style.display = "flex";
+}
+
+// Planned hours per day, split at local midnight the same way the server
+// splits clocked sessions — an overnight block is not one day's hours.
+function plannedByDay(blocks) {
+  const out = {};
+  (blocks || []).forEach((block) => {
+    let cursor = new Date(block.start);
+    const finish = new Date(block.end);
+    while (cursor < finish) {
+      const midnight = new Date(
+        cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1
+      );
+      const segmentEnd = finish < midnight ? finish : midnight;
+      const key = dayKey(cursor);
+      out[key] = (out[key] || 0) + (segmentEnd - cursor) / 3600000;
+      cursor = segmentEnd;
+    }
+  });
+  return out;
+}
+
+function monthCell(day, month, planned, missed, peak, today) {
+  const key = dayKey(day);
+  const clocked = month.clockedByDay[key] || 0;
+  const plan = planned[key] || 0;
+
+  const cell = document.createElement("button");
+  cell.type = "button";
+  cell.className = "mcell";
+  if (key === today) cell.classList.add("today");
+  else if (key < today) cell.classList.add("spent");  // ISO keys sort as dates do
+  cell.title = "Open the week of " + key;
+
+  const num = document.createElement("span");
+  num.className = "mnum";
+  num.textContent = day.getDate();
+
+  // Bars are scaled to the month's busiest day, so cells are comparable to
+  // each other rather than to an absolute nobody can see.
+  const bar = document.createElement("div");
+  bar.className = "mbar";
+  const clockedPct = Math.min(100, (clocked / peak) * 100);
+  const clockedFill = document.createElement("i");
+  clockedFill.className = "b-clocked";
+  clockedFill.style.width = clockedPct + "%";
+  const plannedFill = document.createElement("i");
+  plannedFill.className = "b-planned";
+  plannedFill.style.width = Math.min(100 - clockedPct, (plan / peak) * 100) + "%";
+  bar.append(clockedFill, plannedFill);
+
+  const figs = document.createElement("div");
+  figs.className = "mfigs";
+  const line = (cls, text) => {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    figs.appendChild(span);
+  };
+  if (clocked > 0.01) line("din", hours(clocked) + "h in");
+  if (plan > 0.01) line("dpl", hours(plan) + "h plan");
+  if (clocked <= 0.01 && plan <= 0.01) line("", "—");
+  if (missed.has(key)) line("dmiss", "not logged");
+
+  cell.append(num, bar, figs);
+  cell.onclick = () => openWeek(key);
+  return cell;
+}
+
+function drawMonthGrid(month) {
+  const grid = $("monthgrid");
+  grid.innerHTML = "";
+
+  const first = new Date(month.monthStart);
+  const last = new Date(month.monthEnd);  // exclusive
+  const firstDay = state.week ? new Date(state.week.weekStart).getDay() : 1;
+  const planned = plannedByDay(month.blocks);
+  const today = dayKey(new Date(month.now));
+
+  const missed = new Set();
+  (month.unlogged || []).forEach((item) => {
+    const block = (month.blocks || []).find((b) => b.id === item.blockId);
+    if (block) missed.add(dayKey(new Date(block.start)));
+  });
+
+  let peak = 4;  // floor, so a near-empty month doesn't render one-hour bars full
+  for (let day = new Date(first); day < last; day.setDate(day.getDate() + 1)) {
+    const key = dayKey(day);
+    peak = Math.max(peak, (month.clockedByDay[key] || 0) + (planned[key] || 0));
+  }
+
+  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (let i = 0; i < 7; i++) {
+    const head = document.createElement("div");
+    head.className = "mhead";
+    head.textContent = names[(firstDay + i) % 7];
+    grid.appendChild(head);
+  }
+
+  const blank = () => {
+    const cell = document.createElement("div");
+    cell.className = "mcell blank";
+    grid.appendChild(cell);
+  };
+  for (let i = 0; i < (first.getDay() - firstDay + 7) % 7; i++) blank();
+  for (let day = new Date(first); day < last; day.setDate(day.getDate() + 1)) {
+    grid.appendChild(monthCell(new Date(day), month, planned, missed, peak, today));
+  }
+  // The seven headers make the count a clean multiple, so this squares off
+  // the final row rather than leaving it ragged.
+  while (grid.children.length % 7 !== 0) blank();
 }
 
 function eventsFrom(week) {
@@ -624,9 +962,11 @@ function paint(week) {
 
   drawRail(week.summary);
   drawMonth(week.month);
+  drawMonthFlag(week.month);
   say(week.intraError ? "Intra: " + week.intraError : "");
   $("push").disabled = !week.icloudEnabled;
   $("pull").disabled = !week.icloudEnabled;
+  $("push").title = $("pull").title = "";
 
   state.calendar.removeAllEvents();
   eventsFrom(week).forEach((event) => state.calendar.addEvent(event));
@@ -647,16 +987,125 @@ function paint(week) {
 async function refresh(force) {
   if (state.busy) return;  // drop overlapping refreshes instead of racing them
   state.busy = true;
+  const asked = state.anchor;
   try {
     const query = new URLSearchParams();
-    if (state.anchor) query.set("date_", state.anchor);
+    if (asked) query.set("date_", asked);
     if (force) query.set("refresh", "true");
-    paint(await api("/api/week?" + query.toString()));
+    const week = await api("/api/week?" + query.toString());
+    state.week = week;
+    // The week grid can be mid-fetch when the month tab takes over; painting
+    // its result then would overwrite the month readout with week figures.
+    if (state.view === "week") paint(week);
   } catch (error) {
     say(error.message);
   } finally {
     state.busy = false;
+    settle("week", asked);
   }
+}
+
+// Anything that wanted to refresh while a fetch was in flight got dropped by
+// the busy guard. If the tab or the date moved in the meantime, what is on
+// screen is not what was just fetched, so go round once more.
+function settle(fetched, asked) {
+  const stale =
+    state.view !== fetched ||
+    (fetched === "week" ? state.anchor !== asked : state.monthAnchor !== asked);
+  if (stale) refreshView();
+}
+
+function paintMonth(month) {
+  state.month = month;
+  state.monthAnchor = month.monthStart.slice(0, 10);
+  $("range").textContent = month.summary.longLabel;
+  drawMonthReadout(month.summary);
+  drawMonthFlag(month.summary);
+  drawMonthGrid(month);
+  say(month.intraError ? "Intra: " + month.intraError : "");
+  // push/pull are week-shaped operations (see caldav_sync.push_week) — there
+  // is no month equivalent, so they're off rather than silently partial.
+  $("push").disabled = true;
+  $("pull").disabled = true;
+  $("push").title = $("pull").title = "Switch to a week to sync with iCloud.";
+}
+
+async function refreshMonth(force) {
+  if (state.busy) return;
+  state.busy = true;
+  const asked = state.monthAnchor;
+  try {
+    const query = new URLSearchParams();
+    if (asked) query.set("date_", asked);
+    if (force) query.set("refresh", "true");
+    const month = await api("/api/month?" + query.toString());
+    if (state.view === "month") paintMonth(month);
+    else state.month = month;
+  } catch (error) {
+    say(error.message);
+  } finally {
+    state.busy = false;
+    settle("month", asked);
+  }
+}
+
+function setView(name) {
+  state.view = name;
+  const isWeek = name === "week";
+
+  $("tab-week").classList.toggle("is-on", isWeek);
+  $("tab-month").classList.toggle("is-on", !isWeek);
+  $("tab-week").setAttribute("aria-selected", String(isWeek));
+  $("tab-month").setAttribute("aria-selected", String(!isWeek));
+
+  $("grid").style.display = isWeek ? "" : "none";
+  $("monthgrid").style.display = isWeek ? "none" : "";
+  $("monthstrip").style.display = isWeek ? "" : "none";  // redundant beside the month rail
+  $("hint-week").style.display = isWeek ? "" : "none";
+  $("hint-month").style.display = isWeek ? "none" : "";
+  document.querySelector(".legend").style.display = isWeek ? "" : "none";
+  $("prev").setAttribute("aria-label", isWeek ? "Previous week" : "Previous month");
+  $("next").setAttribute("aria-label", isWeek ? "Next week" : "Next month");
+
+  if (isWeek) {
+    // Paint from cache immediately, even with a fetch in flight: that fetch
+    // can only resolve after this returns, so it still wins. Skipping this
+    // would leave month figures sitting under a highlighted Week tab until
+    // the network came back.
+    if (state.week) paint(state.week);
+    // FullCalendar measures itself on render; coming back from display:none
+    // it needs telling that it has width again.
+    if (state.calendar) state.calendar.updateSize();
+    refresh();
+  } else {
+    // First visit: open on whatever month the week strip was already reporting.
+    if (!state.monthAnchor && state.week) state.monthAnchor = state.week.month.start;
+    if (state.month) paintMonth(state.month);
+    refreshMonth();
+  }
+}
+
+// Repaints whichever view is on screen — used after anything that changes
+// blocks, since a write in one view invalidates the other's totals too.
+function refreshView(force) {
+  return state.view === "week" ? refresh(force) : refreshMonth(force);
+}
+
+function stepMonth(delta) {
+  const from = new Date(state.monthAnchor || new Date());
+  state.monthAnchor = dayKey(new Date(from.getFullYear(), from.getMonth() + delta, 1));
+  refreshMonth();
+}
+
+// Clicking a day in the month grid drops you into that week to actually edit
+// it — the month view is for reading the shape of the month, not for drag-
+// and-drop.
+function openWeek(dayIso) {
+  // Move the calendar before switching tabs: datesSet is what updates
+  // state.anchor, and setView's own refresh would otherwise go and fetch the
+  // week we are leaving.
+  if (state.calendar) state.calendar.gotoDate(dayIso);
+  setView("week");
 }
 
 // The server never rejects a backdated block — it's your call, not a rule —
@@ -671,7 +1120,7 @@ async function deleteBlock(id, title) {
   if (!confirm("Delete this " + title + " block?")) return;
   try {
     await api("/api/blocks/" + id, { method: "DELETE" });
-    await refresh();
+    await refreshView();
   } catch (error) { say(error.message); }
 }
 
@@ -688,7 +1137,7 @@ async function move(info) {
       method: "PATCH",
       body: JSON.stringify({ start: info.event.startStr, end: info.event.endStr }),
     });
-    await refresh();
+    await refreshView();
   } catch (error) {
     say(error.message);
     info.revert();
@@ -824,30 +1273,55 @@ async function boot() {
   });
 
   state.calendar.render();
+  state.monthAnchor = first.month.start;
   paint(first);
 }
 
-$("prev").onclick = () => state.calendar && state.calendar.prev();
-$("next").onclick = () => state.calendar && state.calendar.next();
+// The arrows step whatever unit is on screen.
+$("prev").onclick = () =>
+  state.view === "week" ? state.calendar && state.calendar.prev() : stepMonth(-1);
+$("next").onclick = () =>
+  state.view === "week" ? state.calendar && state.calendar.next() : stepMonth(1);
+
+$("tab-week").onclick = () => setView("week");
+$("tab-month").onclick = () => setView("month");
 
 $("refresh").onclick = async () => {
   $("refresh").disabled = true;
   try {
-    await refresh(true);
+    await refreshView(true);
     await loadSecretFlag();
     say("Up to date with intra.", "good");
   }
   finally { $("refresh").disabled = false; }
 };
 
+// One button, two scopes: in the week view it closes the weekly gap, in the
+// month view it plans the rest of the month up to the monthly target.
+async function fillGap(scope, anchor) {
+  const query = new URLSearchParams({ scope });
+  if (anchor) query.set("date_", anchor);
+  const result = await api("/api/rebalance?" + query.toString(), { method: "POST" });
+  await refreshView();
+  say(result.detail, result.shortfall > 0.01 ? "warn" : "good");
+}
+
 $("fill").onclick = async () => {
   $("fill").disabled = true;
   try {
-    const query = state.anchor ? "?date_=" + state.anchor : "";
-    const result = await api("/api/rebalance" + query, { method: "POST" });
-    await refresh();
-    say(result.detail, result.shortfall > 0.01 ? "warn" : "good");
-  } catch (error) { say(error.message); }
+    await (state.view === "week"
+      ? fillGap("week", state.anchor)
+      : fillGap("month", state.monthAnchor));
+  } catch (error) { say(error.message); $("fill").disabled = false; }
+};
+
+// The flag's own button always means the month, whichever view it appears on.
+$("month-flag-fill").onclick = async () => {
+  $("month-flag-fill").disabled = true;
+  try {
+    const month = state.view === "week" ? state.week.month.start : state.monthAnchor;
+    await fillGap("month", month);
+  } catch (error) { say(error.message); $("month-flag-fill").disabled = false; }
 };
 
 $("push").onclick = async () => {

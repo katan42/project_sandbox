@@ -8,7 +8,8 @@ Vocabulary used throughout:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 
 Interval = tuple[datetime, datetime]
@@ -262,8 +263,15 @@ def autofill(
         if take <= 0.01:
             continue
 
-        # Round down to the nearest 15 minutes so the grid stays tidy.
-        quarters = int(take * 4)
+        # Snap to 15 minutes so the grid stays tidy. Rounding down alone would
+        # strand a sub-quarter sliver of deficit that no later window can place
+        # either — 0.13h floors to zero in every window it is offered — so the
+        # piece that closes the gap rounds up instead, never past what the
+        # window or the day can actually hold.
+        if take >= remaining - 0.01:
+            quarters = min(math.ceil(take * 4), int(available * 4), int(headroom * 4))
+        else:
+            quarters = int(take * 4)
         if quarters == 0:
             continue
         take = quarters / 4
@@ -273,3 +281,124 @@ def autofill(
         remaining -= take
 
     return placed
+
+
+def clip(blocks: list, window: Interval) -> list:
+    """Blocks trimmed to `window`, dropping the ones outside it entirely.
+
+    The store returns anything *overlapping* a window, so a block straddling a
+    month boundary arrives whole. Counting its full length against one month
+    would credit that month with hours actually spent in the other.
+    """
+    start, end = window
+    kept: list = []
+    for block in blocks:
+        if block.end <= start or block.start >= end:
+            continue  # no part of this block falls inside the window
+        if block.start >= start and block.end <= end:
+            kept.append(block)  # already inside — no copy needed
+        else:
+            kept.append(
+                replace(block, start=max(block.start, start), end=min(block.end, end))
+            )
+    return kept
+
+
+@dataclass
+class MonthSummary:
+    """The month equivalent of WeekSummary, with one extra distinction the
+    week view doesn't need: hours you still have to *log* versus hours you
+    haven't even put on the grid yet. Late in the month those are the two
+    numbers that matter, and they are not the same number."""
+
+    target_hours: float
+    clocked_hours: float
+    planned_future_hours: float
+    planned_past_hours: float
+    unlogged_hours: float
+    days_left: int
+    first_day: date
+
+    @property
+    def projected_hours(self) -> float:
+        """Where you land if you show up to everything still on the grid."""
+        return self.clocked_hours + self.planned_future_hours
+
+    @property
+    def to_log_hours(self) -> float:
+        """Hours that still have to appear on intra, planned or not. This is
+        the honest month-end number — a planned block is not a logged hour."""
+        return max(0.0, self.target_hours - self.clocked_hours)
+
+    @property
+    def remaining_hours(self) -> float:
+        """Hours that aren't even on the grid yet."""
+        return max(0.0, self.target_hours - self.projected_hours)
+
+    @property
+    def on_track(self) -> bool:
+        return self.projected_hours >= self.target_hours - 0.01
+
+    @property
+    def per_day_hours(self) -> float:
+        """What `to_log_hours` works out to per remaining day. Zero days left
+        means the question is moot, not that the rate is infinite."""
+        if self.days_left <= 0:
+            return 0.0
+        return self.to_log_hours / self.days_left
+
+    def as_dict(self) -> dict:
+        return {
+            "target": round(self.target_hours, 2),
+            "clocked": round(self.clocked_hours, 2),
+            "plannedFuture": round(self.planned_future_hours, 2),
+            "plannedPast": round(self.planned_past_hours, 2),
+            "unlogged": round(self.unlogged_hours, 2),
+            "projected": round(self.projected_hours, 2),
+            "toLog": round(self.to_log_hours, 2),
+            "remaining": round(self.remaining_hours, 2),
+            "perDay": round(self.per_day_hours, 2),
+            "onTrack": self.on_track,
+            "daysLeft": self.days_left,
+            # `start` lets any consumer of this dict re-request the same month
+            # without having to parse the label back into a date.
+            "start": self.first_day.isoformat(),
+            "label": self.first_day.strftime("%B"),
+            "longLabel": self.first_day.strftime("%B %Y"),
+        }
+
+
+def summarise_month(
+    target_hours: float,
+    clocked: dict[date, timedelta],
+    blocks: list,
+    sessions: list[Interval],
+    now: datetime,
+    month_start: datetime,
+    month_end: datetime,
+) -> MonthSummary:
+    first, last = month_start.date(), month_end.date()
+    clocked_hours = sum(
+        duration.total_seconds()
+        for day, duration in clocked.items()
+        if first <= day < last
+    ) / 3600
+
+    in_month = clip(blocks, (month_start, month_end))
+    future, past = split_future_past(in_month, now)
+    unlogged = sum(item.hours for item in flag_unlogged(in_month, sessions, now))
+
+    # Counts today as a day you can still use. Clamped at both ends so a month
+    # you've navigated away from reads 0 (past) or its full length (future)
+    # rather than a nonsense negative or a number larger than the month.
+    days_left = max(0, min((last - now.date()).days, (last - first).days))
+
+    return MonthSummary(
+        target_hours=target_hours,
+        clocked_hours=clocked_hours,
+        planned_future_hours=future,
+        planned_past_hours=past,
+        unlogged_hours=unlogged,
+        days_left=days_left,
+        first_day=first,
+    )

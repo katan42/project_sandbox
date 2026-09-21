@@ -216,6 +216,148 @@ def test_autofill_accounts_for_hours_already_clocked_that_day():
     assert total == 2  # only 2h of headroom left on that day
 
 
+def test_autofill_rounds_the_closing_block_up_to_a_quarter():
+    # 0.13h floors to zero quarters in every window it is ever offered, so
+    # rounding down alone leaves the target permanently a sliver short.
+    windows = planner.free_windows(
+        days=[date(2026, 8, 8)], day_start=time(9, 0), day_end=time(22, 0),
+        blocked=[], tz=TZ,
+    )
+    placed = planner.autofill(
+        deficit_hours=0.13, windows=windows, clocked={}, planned=[],
+        max_hours_per_day=10, min_block_minutes=0,
+    )
+    total = sum((end - start).total_seconds() / 3600 for start, end in placed)
+    assert total == 0.25  # overshoots by under 15 minutes, rather than by never finishing
+
+
+def test_autofill_rounding_up_still_respects_the_day_cap():
+    windows = planner.free_windows(
+        days=[date(2026, 8, 8)], day_start=time(9, 0), day_end=time(22, 0),
+        blocked=[], tz=TZ,
+    )
+    placed = planner.autofill(
+        deficit_hours=2.1, windows=windows, clocked={},
+        planned=[], max_hours_per_day=2, min_block_minutes=0,
+    )
+    total = sum((end - start).total_seconds() / 3600 for start, end in placed)
+    assert total == 2  # the cap wins over closing the gap
+
+
+
+# ---- month summary ---------------------------------------------------------
+
+AUG = datetime(2026, 8, 1, tzinfo=TZ)
+SEP = datetime(2026, 9, 1, tzinfo=TZ)
+
+
+def month(**kwargs):
+    """summarise_month over August 2026, with sensible defaults."""
+    return planner.summarise_month(
+        target_hours=kwargs.get("target", 90.0),
+        clocked=kwargs.get("clocked", {}),
+        blocks=kwargs.get("blocks", []),
+        sessions=kwargs.get("sessions", []),
+        now=kwargs.get("now", at(20, 12)),
+        month_start=AUG,
+        month_end=SEP,
+    )
+
+
+def test_clip_trims_a_block_at_the_month_boundary():
+    # 22:00 on the 31st to 02:00 on the 1st: three of those hours are August's
+    # and one is September's, and the store hands back the whole thing.
+    straddler = FakeBlock("b", at(31, 22), datetime(2026, 9, 1, 2, tzinfo=TZ))
+    kept = planner.clip([straddler], (AUG, SEP))
+    assert len(kept) == 1
+    assert kept[0].hours == 2  # 22:00-24:00, not the full 4h
+    assert kept[0].id == "b"   # still recognisably the same block
+
+
+def test_clip_drops_blocks_outside_the_window():
+    outside = FakeBlock("b", datetime(2026, 7, 4, 9, tzinfo=TZ),
+                        datetime(2026, 7, 4, 12, tzinfo=TZ))
+    assert planner.clip([outside], (AUG, SEP)) == []
+
+
+def test_month_counts_only_days_inside_the_month():
+    summary = month(clocked={
+        date(2026, 7, 31): timedelta(hours=8),   # previous month
+        date(2026, 8, 3): timedelta(hours=6),
+        date(2026, 9, 1): timedelta(hours=8),    # next month
+    })
+    assert summary.clocked_hours == 6
+
+
+def test_month_separates_hours_to_log_from_hours_to_place():
+    # 60h logged, 20h still on the grid ahead of `now`: 30h to log, 10h to place.
+    summary = month(
+        clocked={date(2026, 8, 3): timedelta(hours=60)},
+        blocks=[FakeBlock("b", at(25, 9), at(25, 19)),
+                FakeBlock("c", at(26, 9), at(26, 19))],
+    )
+    assert summary.clocked_hours == 60
+    assert summary.planned_future_hours == 20
+    assert summary.to_log_hours == 30   # planned hours are not logged hours
+    assert summary.remaining_hours == 10
+    assert summary.on_track is False
+
+
+def test_month_on_track_once_the_plan_covers_the_target():
+    summary = month(
+        clocked={date(2026, 8, 3): timedelta(hours=60)},
+        blocks=[FakeBlock("b", at(25, 9), at(25, 19)),
+                FakeBlock("c", at(26, 9), at(26, 19)),
+                FakeBlock("d", at(27, 9), at(27, 19))],
+    )
+    assert summary.remaining_hours == 0     # nothing left to place
+    assert summary.to_log_hours == 30       # but 30h still has to be clocked
+    assert summary.on_track is True
+
+
+def test_month_target_met_is_clamped_not_negative():
+    summary = month(clocked={date(2026, 8, 3): timedelta(hours=95)})
+    assert summary.to_log_hours == 0
+    assert summary.remaining_hours == 0
+    assert summary.projected_hours == 95
+
+
+def test_month_days_left_counts_today():
+    assert month(now=at(20, 12)).days_left == 12   # the 20th through the 31st
+    assert month(now=at(31, 23)).days_left == 1    # last day still counts
+
+
+def test_month_days_left_clamps_outside_the_month():
+    past = month(now=datetime(2026, 10, 5, 9, tzinfo=TZ))
+    assert past.days_left == 0                     # never negative
+    future = month(now=datetime(2026, 6, 5, 9, tzinfo=TZ))
+    assert future.days_left == 31                  # never more than August holds
+
+
+def test_month_per_day_rate_survives_a_finished_month():
+    over = month(clocked={date(2026, 8, 3): timedelta(hours=10)},
+                 now=datetime(2026, 10, 5, 9, tzinfo=TZ))
+    assert over.days_left == 0
+    assert over.per_day_hours == 0   # not a division by zero
+
+
+def test_month_reports_planned_time_that_never_got_logged():
+    # A block on the 10th with no session under it, seen from the 20th.
+    summary = month(
+        blocks=[FakeBlock("b", at(10, 9), at(10, 13))],
+        sessions=[(at(10, 9), at(10, 11))],  # only half of it actually happened
+    )
+    assert summary.unlogged_hours == 2
+    assert summary.planned_past_hours == 4
+
+
+def test_month_labels_come_from_the_month_not_from_today():
+    summary = month(now=datetime(2026, 12, 25, 9, tzinfo=TZ))
+    assert summary.as_dict()["label"] == "August"
+    assert summary.as_dict()["longLabel"] == "August 2026"
+    assert summary.as_dict()["start"] == "2026-08-01"
+
+
 if __name__ == "__main__":
     passed = 0
     for name, function in sorted(globals().items()):

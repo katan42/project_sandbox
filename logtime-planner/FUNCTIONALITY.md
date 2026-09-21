@@ -55,7 +55,7 @@ starting). Flagging is advisory — you can leave a conflicted block in place.
 
 **Fill the gap** places blocks in the earliest free time until the deficit
 closes. Earliest-first rather than largest-window-first, because hours banked
-early can't be lost to a cancelled Sunday. It respects `MAX_HOURS_PER_DAY`
+early can't be lost to a cancelled Sunday. It respects `PLAN_MAX_HOURS_PER_DAY`
 (counting hours already clocked that day), won't place a block shorter than
 `MIN_BLOCK_MINUTES` unless doing so finishes the job, rounds down to the
 nearest 15 minutes, and never overshoots the deficit. Every calendar event it
@@ -264,7 +264,8 @@ unresponsive in an earlier version.
 | `DAY_WINDOW_START` | `08:00` | Earliest auto-fill will place a block |
 | `DAY_WINDOW_END` | `23:00` | Latest |
 | `MIN_BLOCK_MINUTES` | `60` | Shortest auto-placed block |
-| `MAX_HOURS_PER_DAY` | `10` | Ceiling per day, counting clocked hours |
+| `PLAN_MAX_HOURS_PER_DAY` | `14` | Most auto-fill will suggest for one day, counting clocked hours |
+| `MANUAL_MAX_HOURS_PER_DAY` | `24` | Most a block you place yourself may put on one day |
 | `TRAVEL_BUFFER_MINUTES` | `30` | Gap below which a block is flagged |
 | `GOOGLE_ICS_URLS` | — | Comma-separated secret iCal URLs |
 | `ICLOUD_USERNAME` | — | Apple ID |

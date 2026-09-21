@@ -3,6 +3,7 @@ for a short TTL so dragging a block around doesn't re-hit the network."""
 
 from __future__ import annotations
 
+import math
 import time as _time
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -13,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import caldav_sync, planner, store
-from .calendars import busy_between, week_bounds
+from .calendars import busy_between, month_bounds, month_of_week, week_bounds
 from .config import settings
 from .ft_api import SECRET_WARN_DAYS, FtApiError, client
 
@@ -56,38 +57,59 @@ def _anchor(day: str | None) -> date:
     return date.fromisoformat(day) if day else datetime.now(settings.tz).date()
 
 
-def _month_summary(
-    all_logtime: dict[date, timedelta], live_hours: float, now: datetime
-) -> dict:
-    """Calendar-month progress against MONTHLY_TARGET_HOURS."""
-    first = now.date().replace(day=1)  # first day of the current month
-    if first.month == 12:
-        next_first = first.replace(year=first.year + 1, month=1)  # wrap into January
-    else:
-        next_first = first.replace(month=first.month + 1)
+def _load_month(anchor: date, force: bool = False) -> dict:
+    """Calendar-month progress against MONTHLY_TARGET_HOURS, for the month
+    containing `anchor` — not for whatever month it happens to be today."""
+    start, end = month_bounds(anchor)
+    now = datetime.now(settings.tz)
 
-    clocked = sum(
-        duration.total_seconds()
-        for day, duration in all_logtime.items()
-        if first <= day < next_first
-    ) / 3600
-    clocked += live_hours
+    clocked: dict[date, timedelta] = {}
+    sessions: list[tuple[datetime, datetime]] = []
+    intra_error = None
+    if settings.ft_enabled:
+        try:
+            all_logtime = _cached("logtime", client.all_logtime, force)
+            clocked = {
+                day: duration
+                for day, duration in all_logtime.items()
+                if start.date() <= day < end.date()
+            }
+            # Sessions on top of the daily rollup, for the same reason the
+            # week view prefers them: locations_stats leaves out a session
+            # that is still running, so this is the only route by which time
+            # you are clocking *right now* reaches the month total.
+            sessions[:] = _cached(
+                f"sessions:month:{start.date()}",
+                lambda: client.sessions_between(start, end),
+                force,
+            )
+            clocked.update(planner.hours_by_day(sessions, settings.tz))
+        except FtApiError as exc:
+            intra_error = str(exc)  # keep the coarser rollup we already have
 
-    month_start = datetime.combine(first, datetime.min.time(), tzinfo=settings.tz)
-    month_end = datetime.combine(next_first, datetime.min.time(), tzinfo=settings.tz)
-    planned, _ = planner.split_future_past(
-        store.list_between(month_start, month_end), now
+    blocks = store.list_between(start, end)
+    summary = planner.summarise_month(
+        settings.monthly_target_hours, clocked, blocks, sessions, now, start, end
+    )
+    unlogged = (
+        planner.flag_unlogged(planner.clip(blocks, (start, end)), sessions, now)
+        if settings.ft_enabled
+        else []
     )
 
-    target = settings.monthly_target_hours
-    days_left = (next_first - now.date()).days
     return {
-        "target": round(target, 2),
-        "clocked": round(clocked, 2),
-        "planned": round(planned, 2),
-        "remaining": round(max(0.0, target - clocked - planned), 2),
-        "daysLeft": days_left,
-        "label": first.strftime("%B"),
+        "monthStart": start.isoformat(),
+        "monthEnd": end.isoformat(),
+        "now": now.isoformat(),
+        "timezone": settings.timezone,
+        "summary": summary.as_dict(),
+        "clockedByDay": {
+            day.isoformat(): round(duration.total_seconds() / 3600, 2)
+            for day, duration in sorted(clocked.items())
+        },
+        "blocks": [block.as_dict() for block in blocks],
+        "unlogged": [{"blockId": u.block_id, "hours": u.hours} for u in unlogged],
+        "intraError": intra_error,
     }
 
 
@@ -137,9 +159,9 @@ def _load_week(anchor: date, force: bool = False) -> dict:
         for day, duration in sorted(clocked.items())
     }
 
-    merged = dict(all_logtime)
-    merged.update(clocked)  # session data wins for the days it covers
-    month = _month_summary(merged, live_hours, now)
+    # The strip under the week rail reports on the month this week mostly
+    # falls in, so stepping the grid into a new month moves the strip with it.
+    month = _load_month(month_of_week(start.date()), force)["summary"]
 
     conflicts = planner.find_conflicts(
         blocks, busy, timedelta(minutes=settings.travel_buffer_minutes)
@@ -209,6 +231,39 @@ class BlockPatch(BaseModel):
     note: str | None = None
 
 
+def _reject_day_overload(
+    start: datetime, end: datetime, exclude_id: str | None = None
+) -> None:
+    """A block you place yourself may fill a day right up to
+    MANUAL_MAX_HOURS_PER_DAY. Auto-fill stops far earlier, at
+    PLAN_MAX_HOURS_PER_DAY — what the planner is willing to suggest and what
+    you are allowed to commit to are not the same question, and only the
+    second one belongs in a validator."""
+    cap = settings.manual_max_hours_per_day
+
+    # Widened to whole local days: a day's total includes blocks that start
+    # before this one or run past it, not just the slice inside [start, end).
+    first = datetime.combine(start.date(), datetime.min.time(), tzinfo=settings.tz)
+    last = datetime.combine(
+        end.date() + timedelta(days=1), datetime.min.time(), tzinfo=settings.tz
+    )
+    others = [b for b in store.list_between(first, last) if b.id != exclude_id]
+    intervals = [(b.start, b.end) for b in others] + [(start, end)]
+
+    # hours_by_day splits at midnight, so an overnight block is charged to the
+    # two days it actually covers rather than counted twice over.
+    for day, total in planner.hours_by_day(intervals, settings.tz).items():
+        if day < start.date() or day > end.date():
+            continue  # only the days this block touches are this block's problem
+        hours = total.total_seconds() / 3600
+        if hours > cap + 0.01:
+            raise HTTPException(
+                400,
+                f"That would put {hours:.1f}h of planned time on "
+                f"{day.strftime('%a %-d %b')} — the limit is {cap:g}h a day.",
+            )
+
+
 def _reject_overlap(start: datetime, end: datetime, exclude_id: str | None = None) -> None:
     """Two planned blocks covering the same minute would double-count that
     minute in every hours total, so the grid must stay a partition, not a
@@ -229,12 +284,18 @@ def get_week(date_: str | None = None, refresh: bool = False):
     return _load_week(_anchor(date_), force=refresh)
 
 
+@app.get("/api/month")
+def get_month(date_: str | None = None, refresh: bool = False):
+    return _load_month(_anchor(date_), force=refresh)
+
+
 @app.post("/api/blocks")
 def add_block(payload: BlockIn):
     start, end = _parse(payload.start), _parse(payload.end)
     if end <= start:
         raise HTTPException(400, "A block has to end after it starts.")
     _reject_overlap(start, end)
+    _reject_day_overload(start, end)
     return store.create(start, end, payload.note).as_dict()
 
 
@@ -246,6 +307,7 @@ def edit_block(block_id: str, payload: BlockPatch):
     if end <= start:
         raise HTTPException(400, "A block has to end after it starts.")
     _reject_overlap(start, end, exclude_id=block_id)
+    _reject_day_overload(start, end, exclude_id=block_id)
     return store.update(block_id, start, end, payload.note).as_dict()
 
 
@@ -256,16 +318,49 @@ def remove_block(block_id: str):
 
 
 @app.post("/api/rebalance")
-def rebalance(date_: str | None = None):
-    """Place blocks in the earliest free time until the deficit is closed."""
+def rebalance(date_: str | None = None, scope: str = "week"):
+    """Place blocks in the earliest free time until the gap is closed.
+
+    `scope=week` fills this week up to WEEKLY_TARGET_HOURS. `scope=month`
+    fills the rest of the month up to MONTHLY_TARGET_HOURS and deliberately
+    ignores the weekly target: the weekly figure is a pacing device, and
+    treating it as a ceiling can make the monthly target unreachable outright
+    (four 20h weeks is 80h, which never gets you to 90).
+    PLAN_MAX_HOURS_PER_DAY still applies — that is the most this will ever
+    suggest for one day, and it is deliberately lower than what you are
+    allowed to commit to by hand.
+    """
     anchor = _anchor(date_)
-    week = _load_week(anchor)
-    start, end = week_bounds(anchor)
     now = datetime.now(settings.tz)
 
-    deficit = week["summary"]["deficit"]
+    if scope == "month":
+        view = _load_month(anchor)
+        start, end = month_bounds(anchor)
+        deficit = view["summary"]["remaining"]
+        subject = view["summary"]["longLabel"]
+    else:
+        view = _load_week(anchor)
+        start, end = week_bounds(anchor)
+        deficit = view["summary"]["deficit"]
+        subject = "the week"
+
     if deficit <= 0:
-        return {"placed": 0, "detail": "Nothing to place — the week is covered."}
+        return {
+            "placed": 0,
+            "hours": 0.0,
+            "shortfall": 0.0,
+            "detail": f"Nothing to place — {subject} is covered.",
+        }
+
+    if scope == "month" and view["summary"]["daysLeft"] < 1:
+        # Every window in a finished month is behind `not_before`, so the fill
+        # would place nothing and then blame your day window for it.
+        return {
+            "placed": 0,
+            "hours": 0.0,
+            "shortfall": round(deficit, 2),
+            "detail": f"{subject} is over — those hours can't be planned now.",
+        }
 
     # Padded by the travel buffer so autofill never lands a block so tight
     # against a calendar event that it's an instant conflict — that gap is
@@ -273,42 +368,69 @@ def rebalance(date_: str | None = None):
     buffer = timedelta(minutes=settings.travel_buffer_minutes)
     busy = busy_between(start, end)
     blocks = store.list_between(start, end)
-    blocked = [
-        (_parse(e.start.isoformat()) - buffer, _parse(e.end.isoformat()) + buffer)
-        for e in busy
+    fixed = [
+        (event.start - buffer, event.end + buffer)
+        for event in busy
+        if event.source != "error"  # a dead feed isn't a reason to block out time
     ]
-    blocked += [(block.start, block.end) for block in blocks]  # your own plans block, too
+    fixed += [(block.start, block.end) for block in blocks]  # your own plans block, too
 
-    days = [(start + timedelta(days=offset)).date() for offset in range(7)]  # every day of the week
-    windows = planner.free_windows(
-        days=days,
-        day_start=settings.day_window_start,
-        day_end=settings.day_window_end,
-        blocked=blocked,
-        tz=settings.tz,
-        not_before=now,
-        min_minutes=15,
-    )
-
+    span = (end - start).days  # 7, or however long the month is
+    days = [(start + timedelta(days=offset)).date() for offset in range(span)]
     clocked = {
         date.fromisoformat(day): timedelta(hours=hours)
-        for day, hours in week["clockedByDay"].items()
+        for day, hours in view["clockedByDay"].items()
     }
-    placements = planner.autofill(
-        deficit_hours=deficit,
-        windows=windows,
-        clocked=clocked,
-        planned=blocks,
-        max_hours_per_day=settings.max_hours_per_day,
-        min_block_minutes=settings.min_block_minutes,
-    )
+
+    # Autofill is chronologically greedy, which is right for a week: the
+    # deficit is small and hours banked early can't be lost to a cancelled
+    # Sunday. Spread over a month it would empty the entire target into the
+    # next day or two — technically inside PLAN_MAX_HOURS_PER_DAY, but not a plan
+    # anyone can keep. So a month fill goes round twice: once at the pace the
+    # month actually needs, and again at the real daily ceiling only if that
+    # left a shortfall.
+    caps = [settings.plan_max_hours_per_day]
+    if scope == "month":
+        days_left = max(1, view["summary"]["daysLeft"])
+        pace = math.ceil((deficit / days_left) * 4) / 4  # to the quarter hour
+        pace = max(pace, settings.min_block_minutes / 60)  # still placeable
+        ceiling = settings.plan_max_hours_per_day
+        caps = [min(pace, ceiling), ceiling]
+
+    placements: list[tuple[datetime, datetime]] = []
+    for cap in caps:
+        shortfall = deficit - sum((f - b).total_seconds() / 3600 for b, f in placements)
+        if shortfall <= 0.01:
+            break
+        windows = planner.free_windows(
+            days=days,
+            day_start=settings.day_window_start,
+            day_end=settings.day_window_end,
+            blocked=fixed + placements,  # earlier passes hold their ground
+            tz=settings.tz,
+            not_before=now,  # days already gone are skipped outright
+            min_minutes=15,
+        )
+        placements += planner.autofill(
+            deficit_hours=shortfall,
+            windows=windows,
+            clocked=clocked,
+            # Per-day headroom has to see this pass's own placements too, or
+            # the second pass would hand the same day its full cap again.
+            planned=blocks + [store.Block("", b, f) for b, f in placements],
+            max_hours_per_day=cap,
+            min_block_minutes=settings.min_block_minutes,
+        )
 
     for begins, finishes in placements:
         store.create(begins, finishes, "")  # persist each suggested slot as a real block
 
     placed_hours = sum((f - b).total_seconds() / 3600 for b, f in placements)
-    shortfall = round(deficit - placed_hours, 2)
-    return {
+    # Clamped: rounding the last block up to a quarter hour can overshoot the
+    # deficit slightly, and "-0.1h short" is not a thing.
+    shortfall = round(max(0.0, deficit - placed_hours), 2)
+    covered = subject[0].upper() + subject[1:]  # not .capitalize(), which would
+    return {                                    # flatten "September" to "september"
         "placed": len(placements),
         "hours": round(placed_hours, 2),
         "shortfall": shortfall,
@@ -316,7 +438,7 @@ def rebalance(date_: str | None = None):
             f"Placed {placed_hours:.1f}h. Still {shortfall:.1f}h short — "
             "widen your day window or free up time."
             if shortfall > 0.01
-            else f"Placed {placed_hours:.1f}h. Week is covered."
+            else f"Placed {placed_hours:.1f}h. {covered} is covered."
         ),
     }
 
