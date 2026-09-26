@@ -206,6 +206,9 @@ def _load_week(anchor: date, force: bool = False) -> dict:
             for c in conflicts
         ],
         "unlogged": [{"blockId": u.block_id, "hours": u.hours} for u in unlogged],
+        # Every tag in use, so the goal editor can offer them without a
+        # second round trip — a project name gets typed in full once.
+        "tags": store.known_tags(),
         "intraError": intra_error,
         "dayWindow": {  # where auto-fill may place blocks
             "start": settings.day_window_start.strftime("%H:%M"),
@@ -222,13 +225,25 @@ def _load_week(anchor: date, force: bool = False) -> dict:
 class BlockIn(BaseModel):
     start: str
     end: str
-    note: str = ""
+    # One short line of what this session is for, plus any number of tags
+    # ("CPP00", "exam"). Both optional — a block with neither is still a
+    # perfectly ordinary block of planned hours.
+    goal: str = ""
+    tags: list[str] | str = ""
 
 
 class BlockPatch(BaseModel):
-    start: str
-    end: str
-    note: str | None = None
+    """Every field optional: dragging a block sends times only, and editing
+    its goal from the goals page sends no times at all."""
+
+    start: str | None = None
+    end: str | None = None
+    goal: str | None = None
+    tags: list[str] | str | None = None
+
+
+class DoneIn(BaseModel):
+    done: bool = True
 
 
 def _reject_day_overload(
@@ -296,25 +311,111 @@ def add_block(payload: BlockIn):
         raise HTTPException(400, "A block has to end after it starts.")
     _reject_overlap(start, end)
     _reject_day_overload(start, end)
-    return store.create(start, end, payload.note).as_dict()
+    return store.create(start, end, payload.goal, payload.tags).as_dict()
 
 
 @app.patch("/api/blocks/{block_id}")
 def edit_block(block_id: str, payload: BlockPatch):
-    if store.get(block_id) is None:
+    block = store.get(block_id)
+    if block is None:
         raise HTTPException(404, "That block no longer exists.")
-    start, end = _parse(payload.start), _parse(payload.end)
+
+    # A goal-only edit carries no times, so fall back to where the block
+    # already sits — the overlap and day-cap checks still have to run against
+    # a real interval, and nothing about them changes when only text moved.
+    start = _parse(payload.start) if payload.start else block.start
+    end = _parse(payload.end) if payload.end else block.end
     if end <= start:
         raise HTTPException(400, "A block has to end after it starts.")
-    _reject_overlap(start, end, exclude_id=block_id)
-    _reject_day_overload(start, end, exclude_id=block_id)
-    return store.update(block_id, start, end, payload.note).as_dict()
+    if (start, end) != (block.start, block.end):
+        _reject_overlap(start, end, exclude_id=block_id)
+        _reject_day_overload(start, end, exclude_id=block_id)
+
+    return store.update(
+        block_id, start, end, goal=payload.goal, tags=payload.tags
+    ).as_dict()
+
+
+@app.post("/api/blocks/{block_id}/done")
+def set_block_done(block_id: str, payload: DoneIn):
+    """Tick a goal off, or untick it. Separate from the generic patch because
+    it is the one edit that doesn't invalidate the iCloud copy."""
+    if store.get(block_id) is None:
+        raise HTTPException(404, "That block no longer exists.")
+    return store.set_done(block_id, payload.done).as_dict()
 
 
 @app.delete("/api/blocks/{block_id}")
 def remove_block(block_id: str):
     store.delete(block_id)
     return {"ok": True}
+
+
+def _goal_bounds(scope: str, anchor: date) -> tuple[datetime | None, datetime | None, str]:
+    """The span the goals page is reporting on, and what to call it."""
+    if scope == "week":
+        start, end = week_bounds(anchor)
+        label = (
+            f"{start.strftime('%-d %b')} – "
+            f"{(end - timedelta(days=1)).strftime('%-d %b')}"
+        )
+        return start, end, label
+    if scope == "all":
+        return None, None, "Everything"
+    start, end = month_bounds(anchor)
+    return start, end, start.strftime("%B %Y")
+
+
+@app.get("/api/goals")
+def get_goals(date_: str | None = None, scope: str = "month", tag: str | None = None):
+    """Every planned block in the span, grouped by the day it starts on.
+
+    Blocks without a goal are included rather than filtered out server-side:
+    they are exactly the ones worth prompting you to name, and the page can
+    hide them with a toggle if you'd rather not see them.
+    """
+    anchor = _anchor(date_)
+    now = datetime.now(settings.tz)
+    start, end, label = _goal_bounds(scope, anchor)
+    blocks = store.list_all() if start is None else store.list_between(start, end)
+
+    wanted = tag.strip().lower() if tag and tag.strip() else None
+    if wanted:
+        blocks = [b for b in blocks if any(t.lower() == wanted for t in b.tags)]
+
+    days: dict[str, list[dict]] = {}
+    for block in blocks:
+        item = block.as_dict()
+        item["past"] = block.end <= now
+        days.setdefault(block.start.date().isoformat(), []).append(item)
+
+    with_goal = [b for b in blocks if b.goal]
+    done = [b for b in with_goal if b.done]
+    # "Missed" is the number the page exists to surface: a goal whose session
+    # has already been and gone, still sitting unticked.
+    missed = [b for b in with_goal if not b.done and b.end <= now]
+
+    return {
+        "scope": scope,
+        "label": label,
+        "from": start.isoformat() if start else None,
+        "to": end.isoformat() if end else None,
+        "now": now.isoformat(),
+        "tag": tag or None,
+        "tags": store.known_tags(),
+        "days": [
+            {"date": day, "items": items} for day, items in sorted(days.items())
+        ],
+        "summary": {
+            "blocks": len(blocks),
+            "goals": len(with_goal),
+            "done": len(done),
+            "missed": len(missed),
+            "untitled": len(blocks) - len(with_goal),
+            "hours": round(sum(b.hours for b in with_goal), 2),
+            "doneHours": round(sum(b.hours for b in done), 2),
+        },
+    }
 
 
 @app.post("/api/rebalance")

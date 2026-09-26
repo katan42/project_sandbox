@@ -406,7 +406,7 @@
   .fc .plan-block .fc-event-title {
     font-family: var(--mono);
     font-size: 11px;
-    padding-right: 15px; /* leave room so long titles don't run under the delete button */
+    padding-right: 31px; /* leave room so long titles don't run under the corner buttons */
   }
   /* FullCalendar positions .fc-event elements absolutely already, so the
      delete button just anchors to that without needing its own position
@@ -486,6 +486,186 @@
     padding: 2px 4px;
   }
 
+  /* ---- Goals: one line per planned session, grouped by day ----------- */
+
+  .goalsbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+
+  .chip {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .chip:hover { color: var(--ink); }
+  .chip.is-on {
+    background: var(--planned);
+    border-color: var(--planned);
+    color: #fff;
+  }
+  .chip:focus-visible { outline: 2px solid var(--planned); outline-offset: 2px; }
+
+  .chiprow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chiprow .chiplabel {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  .goalstat {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .goalstat b { color: var(--ink); font-weight: 500; }
+  .goalstat .miss { color: var(--warn); }
+
+  .gday { border-bottom: 1px solid var(--rule); padding: 12px 0; }
+  .gday:last-child { border-bottom: none; }
+
+  .gdate {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .gdate .gd {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .gdate .gd:hover { color: var(--planned); }
+  .gdate .gsum { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .gdate.is-today .gd { color: var(--planned); }
+
+  .gitem {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .gitem + .gitem { border-top: 1px dotted var(--rule); }
+  .gitem input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    accent-color: var(--planned);
+    flex: none;
+  }
+  .gitem .gbody { flex: 1; min-width: 0; }
+  .gitem .gtext { font-size: 14px; line-height: 1.35; }
+  .gitem.is-done .gtext { text-decoration: line-through; color: var(--muted); }
+  .gitem .gtext.empty { color: var(--muted); font-style: italic; }
+  .gitem .gmeta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .gitem .gmeta .tag { color: var(--planned); }
+  .gitem.is-missed .gmeta .flag { color: var(--warn); }
+  .gitem .gedit {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    cursor: pointer;
+    flex: none;
+  }
+  .gitem .gedit:hover { color: var(--ink); }
+
+  .gempty { padding: 28px 0; color: var(--muted); font-size: 14px; }
+
+  /* The goal editor, opened from a block or from the goals page. */
+  dialog.sheet {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 0;
+    width: min(420px, calc(100vw - 32px));
+  }
+  dialog.sheet::backdrop { background: rgba(18, 22, 28, 0.35); }
+  dialog.sheet form { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  dialog.sheet h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  dialog.sheet .when { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  dialog.sheet label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  dialog.sheet input[type="text"] {
+    border: 1px solid var(--rule);
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 14px;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 8px 10px;
+  }
+  dialog.sheet input[type="text"]:focus-visible {
+    outline: 2px solid var(--planned);
+    outline-offset: -1px;
+  }
+  dialog.sheet menu { display: flex; gap: 8px; justify-content: flex-end; margin: 0; padding: 0; }
+
+  .fc .plan-block .block-edit {
+    position: absolute;
+    top: 1px;
+    right: 17px;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    line-height: 12px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.28);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .fc .plan-block .block-edit:hover { background: rgba(0, 0, 0, 0.5); }
+  .fc .plan-block.is-done { border-left-color: #0c3f39; }
+
   .hint {
     margin-top: 12px;
     font-size: 13px;
@@ -529,6 +709,7 @@
       <div class="tabs" role="tablist" aria-label="View">
         <button class="tab is-on" id="tab-week" role="tab" aria-selected="true">Week</button>
         <button class="tab" id="tab-month" role="tab" aria-selected="false">Month</button>
+        <button class="tab" id="tab-goals" role="tab" aria-selected="false">Goals</button>
       </div>
       <span class="secret-flag" id="secret-flag" style="display:none" title="42 client secret — regenerate at profile.intra.42.fr">
         <span id="secret-flag-text"></span>
@@ -593,6 +774,20 @@
     </div>
     <div id="grid"></div>
     <div id="monthgrid" class="monthgrid" style="display:none"></div>
+
+    <div id="goalsview" style="display:none">
+      <div class="goalsbar">
+        <div class="chiprow">
+          <button class="chip is-on" id="goals-scope-month" type="button">This month</button>
+          <button class="chip" id="goals-scope-all" type="button">Everything</button>
+        </div>
+        <div class="chiprow" id="goals-tags"></div>
+        <button class="chip" id="goals-untitled" type="button" aria-pressed="false"
+                title="Blocks you haven't given a goal yet">show blank blocks</button>
+        <span class="goalstat" id="goals-stat"></span>
+      </div>
+      <div id="goals-list"></div>
+    </div>
   </div>
 
   <p class="hint" id="hint-week">
@@ -606,13 +801,48 @@
     day to open its week and edit the plan there.
   </p>
 
+  <p class="hint" id="hint-goals" style="display:none">
+    One line per planned session. Tick a goal once you've done it · press
+    <kbd>edit</kbd> to change its text or tags · click a date to open that
+    week. Goals ride along into the iCloud event title, tags into its
+    categories.
+  </p>
+
 </div>
+
+<dialog class="sheet" id="goal-dialog">
+  <form method="dialog" id="goal-form">
+    <div>
+      <h2>Session goal</h2>
+      <div class="when" id="goal-when"></div>
+    </div>
+    <label>Goal
+      <input type="text" id="goal-text" maxlength="120" autocomplete="off"
+             placeholder="Finish CPP00 ex02" />
+    </label>
+    <label>Tags
+      <input type="text" id="goal-tags" autocomplete="off"
+             placeholder="CPP00, exam" />
+    </label>
+    <div class="chiprow" id="goal-suggest"></div>
+    <menu>
+      <button class="action" type="button" id="goal-cancel">Cancel</button>
+      <button class="action primary" type="submit" id="goal-save">Save</button>
+    </menu>
+  </form>
+</dialog>
 
 <script>
 const state = {
   view: "week",
   anchor: null, week: null,          // week view
   monthAnchor: null, month: null,    // month view
+  goals: null,                       // goals view (follows monthAnchor)
+  goalScope: "month",                // or "all"
+  goalTag: null,                     // tag filter, null for everything
+  showUntitled: false,               // show blocks that have no goal yet
+  tags: [],                          // every tag in use, for the suggestions
+  editing: null,                     // block open in the goal editor
   calendar: null, busy: false,
 };
 
@@ -891,15 +1121,19 @@ function eventsFrom(week) {
     const classNames = ["plan-block"];
     if (clashing.has(block.id)) classNames.push("conflicted");
     if (missed) classNames.push("unlogged");
+    if (block.done) classNames.push("is-done");
     return {
       id: block.id,
       start: block.start,
       end: block.end,
       title:
-        hours(block.hours) + "h" + (block.note ? " " + block.note : "") +
+        hours(block.hours) + "h" +
+        (block.goal ? (block.done ? " ✓ " : " · ") + block.goal : "") +
         (missed ? ` · ${hours(missed)}h not logged` : ""),
       classNames,
-      extendedProps: { kind: "plan" },
+      // The block itself rides along so the ✎ button can open the editor
+      // without going back to the server for what it already has.
+      extendedProps: { kind: "plan", block },
     };
   });
   // Actual sessions sit behind planned blocks: a planned block with tint under
@@ -952,6 +1186,7 @@ function dayHeader(arg) {
 // the arrows feel dead.
 function paint(week) {
   state.week = week;
+  state.tags = week.tags || state.tags;
 
   const from = new Date(week.weekStart);
   const to = new Date(new Date(week.weekEnd).getTime() - 1);
@@ -1009,10 +1244,15 @@ async function refresh(force) {
 // the busy guard. If the tab or the date moved in the meantime, what is on
 // screen is not what was just fetched, so go round once more.
 function settle(fetched, asked) {
-  const stale =
-    state.view !== fetched ||
-    (fetched === "week" ? state.anchor !== asked : state.monthAnchor !== asked);
-  if (stale) refreshView();
+  // goals and month both ride on monthAnchor; only the week has its own.
+  const anchor = fetched === "week" ? state.anchor : state.monthAnchor;
+  const wrongView =
+    fetched === "week"
+      ? state.view !== "week"
+      : fetched === "month"
+        ? state.view === "week"  // the goals view reads the month too
+        : state.view !== "goals";
+  if (wrongView || anchor !== asked) refreshView();
 }
 
 function paintMonth(month) {
@@ -1040,7 +1280,14 @@ async function refreshMonth(force) {
     if (force) query.set("refresh", "true");
     const month = await api("/api/month?" + query.toString());
     if (state.view === "month") paintMonth(month);
-    else state.month = month;
+    else {
+      state.month = month;
+      // The goals view keeps the month readout in the banner over its list.
+      if (state.view === "goals") {
+        drawMonthReadout(month.summary);
+        drawMonthFlag(month.summary);
+      }
+    }
   } catch (error) {
     say(error.message);
   } finally {
@@ -1052,20 +1299,35 @@ async function refreshMonth(force) {
 function setView(name) {
   state.view = name;
   const isWeek = name === "week";
+  const isMonth = name === "month";
+  const isGoals = name === "goals";
 
-  $("tab-week").classList.toggle("is-on", isWeek);
-  $("tab-month").classList.toggle("is-on", !isWeek);
-  $("tab-week").setAttribute("aria-selected", String(isWeek));
-  $("tab-month").setAttribute("aria-selected", String(!isWeek));
+  [["tab-week", isWeek], ["tab-month", isMonth], ["tab-goals", isGoals]].forEach(
+    ([id, on]) => {
+      $(id).classList.toggle("is-on", on);
+      $(id).setAttribute("aria-selected", String(on));
+    }
+  );
 
   $("grid").style.display = isWeek ? "" : "none";
-  $("monthgrid").style.display = isWeek ? "none" : "";
+  $("monthgrid").style.display = isMonth ? "" : "none";
+  $("goalsview").style.display = isGoals ? "" : "none";
   $("monthstrip").style.display = isWeek ? "" : "none";  // redundant beside the month rail
   $("hint-week").style.display = isWeek ? "" : "none";
-  $("hint-month").style.display = isWeek ? "none" : "";
+  $("hint-month").style.display = isMonth ? "" : "none";
+  $("hint-goals").style.display = isGoals ? "" : "none";
   document.querySelector(".legend").style.display = isWeek ? "" : "none";
-  $("prev").setAttribute("aria-label", isWeek ? "Previous week" : "Previous month");
-  $("next").setAttribute("aria-label", isWeek ? "Next week" : "Next month");
+  const unit = isWeek ? "week" : "month";
+  $("prev").setAttribute("aria-label", "Previous " + unit);
+  $("next").setAttribute("aria-label", "Next " + unit);
+  if (!isGoals) freezeNav(false);
+
+  if (isGoals) {
+    if (!state.monthAnchor && state.week) state.monthAnchor = state.week.month.start;
+    if (state.goals) paintGoals(state.goals);
+    refreshGoals().then(() => refreshMonth());
+    return;
+  }
 
   if (isWeek) {
     // Paint from cache immediately, even with a fetch in flight: that fetch
@@ -1088,12 +1350,23 @@ function setView(name) {
 // Repaints whichever view is on screen — used after anything that changes
 // blocks, since a write in one view invalidates the other's totals too.
 function refreshView(force) {
+  if (state.view === "goals") {
+    // Blocks changed, so both the list and the month figures behind it are
+    // stale. One after the other, not at once: the busy guard would drop
+    // whichever of the two came second.
+    return refreshGoals().then(() => refreshMonth(force));
+  }
   return state.view === "week" ? refresh(force) : refreshMonth(force);
 }
 
 function stepMonth(delta) {
   const from = new Date(state.monthAnchor || new Date());
   state.monthAnchor = dayKey(new Date(from.getFullYear(), from.getMonth() + delta, 1));
+  if (state.view === "goals") {
+    // The banner above the list reports on the month, so it moves too.
+    refreshGoals().then(() => refreshMonth());
+    return;
+  }
   refreshMonth();
 }
 
@@ -1183,6 +1456,359 @@ $("secret-flag-remind").onclick = async () => {
   }
 };
 
+// ---- Goals ---------------------------------------------------------------
+// A block's goal is one short line of what that session is for. It is
+// optional: a block without one is still a block of planned hours, and the
+// goals page can either show those (to prompt you to name them) or hide them.
+
+const clock = (iso) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// "2026-09-24" -> a local Date. Never `new Date(iso)` for a bare date string:
+// that parses as UTC and lands on the day before east of Greenwich.
+function dayDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// The arrows step a month. In the goals view's "Everything" scope there is
+// no month on screen to step, so they go dead rather than silently moving an
+// anchor nothing is reading.
+function freezeNav(frozen) {
+  $("prev").disabled = frozen;
+  $("next").disabled = frozen;
+}
+
+function goalsQuery() {
+  const query = new URLSearchParams({ scope: state.goalScope });
+  if (state.goalScope !== "all" && state.monthAnchor) {
+    query.set("date_", state.monthAnchor);
+  }
+  if (state.goalTag) query.set("tag", state.goalTag);
+  return query;
+}
+
+async function refreshGoals() {
+  if (state.busy) return;
+  state.busy = true;
+  const asked = state.monthAnchor;
+  try {
+    const goals = await api("/api/goals?" + goalsQuery().toString());
+    state.tags = goals.tags;
+    if (state.view === "goals") paintGoals(goals);
+    else state.goals = goals;
+  } catch (error) {
+    say(error.message);
+  } finally {
+    state.busy = false;
+    settle("goals", asked);
+  }
+}
+
+function paintGoals(goals) {
+  state.goals = goals;
+  $("range").textContent = goals.label;
+  // The banner keeps reporting on the month — the goals list answers "what
+  // am I doing", not "how am I doing", and both are worth having on screen.
+  const month = state.month ? state.month.summary : state.week && state.week.month;
+  if (month) {
+    drawMonthReadout(month);
+    drawMonthFlag(month);
+  }
+  // push/pull are week-shaped (see caldav_sync.push_week), same as in the
+  // month view: off rather than silently partial.
+  $("push").disabled = true;
+  $("pull").disabled = true;
+  $("push").title = $("pull").title = "Switch to a week to sync with iCloud.";
+
+  // "Everything" isn't a month you can step through.
+  freezeNav(state.goalScope === "all");
+
+  drawGoalFilters(goals);
+  drawGoalStat(goals);
+  drawGoalList(goals);
+}
+
+function drawGoalFilters(goals) {
+  $("goals-scope-month").classList.toggle("is-on", state.goalScope !== "all");
+  $("goals-scope-all").classList.toggle("is-on", state.goalScope === "all");
+  $("goals-untitled").classList.toggle("is-on", state.showUntitled);
+  $("goals-untitled").setAttribute("aria-pressed", String(state.showUntitled));
+
+  const row = $("goals-tags");
+  row.innerHTML = "";
+  if (!goals.tags.length) return;
+  const label = document.createElement("span");
+  label.className = "chiplabel";
+  label.textContent = "tags";
+  row.appendChild(label);
+
+  const chip = (name, on, value) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = on ? "chip is-on" : "chip";
+    button.textContent = name;
+    button.onclick = () => {
+      state.goalTag = value;
+      refreshGoals();
+    };
+    row.appendChild(button);
+  };
+  chip("all", !state.goalTag, null);
+  goals.tags.forEach((tag) => chip(tag, state.goalTag === tag, tag));
+}
+
+// Recomputed locally rather than re-read from the server, so ticking a box
+// moves the count immediately instead of after a round trip.
+function drawGoalStat(goals) {
+  const items = [];
+  goals.days.forEach((day) => items.push(...day.items));
+  const withGoal = items.filter((item) => item.goal);
+  const done = withGoal.filter((item) => item.done);
+  const missed = withGoal.filter((item) => !item.done && item.past);
+  const planned = withGoal.reduce((sum, item) => sum + item.hours, 0);
+
+  const stat = $("goals-stat");
+  stat.innerHTML = "";
+  const put = (text, cls) => {
+    const span = document.createElement("span");
+    if (cls) span.className = cls;
+    span.textContent = text;
+    stat.append(stat.childElementCount ? " · " : "", span);
+  };
+  if (!withGoal.length) {
+    put("no goals set yet");
+  } else {
+    put(`${done.length}/${withGoal.length} done`);
+    put(`${hours(planned)}h planned`);
+    if (missed.length) put(`${missed.length} not ticked`, "miss");
+  }
+  if (goals.summary.untitled && !state.showUntitled) {
+    put(`${goals.summary.untitled} blank`);
+  }
+}
+
+function goalItem(item) {
+  const row = document.createElement("li");
+  row.className = "gitem";
+  if (item.done) row.classList.add("is-done");
+  if (item.goal && !item.done && item.past) row.classList.add("is-missed");
+
+  if (item.goal) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = item.done;
+    box.title = "Tick once you've actually done it";
+    box.setAttribute("aria-label", item.goal);
+    box.onchange = () => toggleDone(item, box);
+    row.appendChild(box);
+  } else {
+    // Keeps the text column aligned with the ticked rows above and below.
+    const spacer = document.createElement("span");
+    spacer.style.width = "16px";
+    spacer.style.flex = "none";
+    row.appendChild(spacer);
+  }
+
+  const body = document.createElement("div");
+  body.className = "gbody";
+  const text = document.createElement("div");
+  text.className = item.goal ? "gtext" : "gtext empty";
+  text.textContent = item.goal || "no goal set";
+  const meta = document.createElement("div");
+  meta.className = "gmeta";
+  const time = document.createElement("span");
+  time.textContent = `${clock(item.start)}–${clock(item.end)} · ${hours(item.hours)}h`;
+  meta.appendChild(time);
+  item.tags.forEach((tag) => {
+    const chip = document.createElement("span");
+    chip.className = "tag";
+    chip.textContent = "#" + tag;
+    meta.appendChild(chip);
+  });
+  if (item.goal && !item.done && item.past) {
+    const flag = document.createElement("span");
+    flag.className = "flag";
+    flag.textContent = "· session's been and gone";
+    meta.appendChild(flag);
+  }
+  body.append(text, meta);
+
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "gedit";
+  edit.textContent = item.goal ? "edit" : "+ goal";
+  edit.onclick = () => openGoalEditor(item);
+
+  row.append(body, edit);
+  return row;
+}
+
+function goalDay(day, today) {
+  const wrap = document.createElement("div");
+  wrap.className = "gday";
+
+  const head = document.createElement("div");
+  head.className = "gdate";
+  if (day.date === today) head.classList.add("is-today");
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "gd";
+  open.title = "Open that week";
+  open.textContent = dayDate(day.date).toLocaleDateString(undefined, {
+    weekday: "short", day: "numeric", month: "short",
+  });
+  open.onclick = () => openWeek(day.date);
+  const sum = document.createElement("span");
+  sum.className = "gsum";
+  const planned = day.items.reduce((total, item) => total + item.hours, 0);
+  const ticked = day.items.filter((item) => item.done).length;
+  sum.textContent =
+    hours(planned) + "h planned" + (ticked ? ` · ${ticked} done` : "");
+  head.append(open, sum);
+
+  const list = document.createElement("ul");
+  list.className = "gitems";
+  list.style.listStyle = "none";
+  list.style.margin = "0";
+  list.style.padding = "0";
+  day.items.forEach((item) => list.appendChild(goalItem(item)));
+
+  wrap.append(head, list);
+  return wrap;
+}
+
+function drawGoalList(goals) {
+  const list = $("goals-list");
+  list.innerHTML = "";
+
+  const days = goals.days
+    .map((day) => ({
+      date: day.date,
+      items: day.items.filter((item) => state.showUntitled || item.goal),
+    }))
+    .filter((day) => day.items.length);
+
+  if (!days.length) {
+    const empty = document.createElement("p");
+    empty.className = "gempty";
+    empty.textContent = state.goalTag
+      ? `Nothing tagged #${state.goalTag} here.`
+      : "No goals yet. Plan a block, then give it one — from its ✎ button on "
+        + "the week grid, or with “show blank blocks” above.";
+    list.appendChild(empty);
+    return;
+  }
+
+  const today = dayKey(new Date(goals.now));
+  days.forEach((day) => list.appendChild(goalDay(day, today)));
+}
+
+// Optimistic: the box is already ticked in the browser, so flip the local
+// copy and repaint the counts now, and only undo it if the server objects.
+async function toggleDone(item, box) {
+  const wanted = box.checked;
+  item.done = wanted;
+  const row = box.closest(".gitem");
+  row.classList.toggle("is-done", wanted);
+  row.classList.toggle("is-missed", !wanted && item.past);
+  if (state.goals) drawGoalStat(state.goals);
+  try {
+    await api("/api/blocks/" + item.id + "/done", {
+      method: "POST",
+      body: JSON.stringify({ done: wanted }),
+    });
+  } catch (error) {
+    say(error.message);
+    item.done = !wanted;
+    box.checked = !wanted;
+    row.classList.toggle("is-done", !wanted);
+    if (state.goals) drawGoalStat(state.goals);
+  }
+}
+
+// ---- The goal editor -----------------------------------------------------
+
+function openGoalEditor(block) {
+  state.editing = block;
+  const when = dayDate(block.start.slice(0, 10)).toLocaleDateString(undefined, {
+    weekday: "short", day: "numeric", month: "short",
+  });
+  $("goal-when").textContent =
+    `${when} · ${clock(block.start)}–${clock(block.end)} · ${hours(block.hours)}h`;
+  $("goal-text").value = block.goal || "";
+  $("goal-tags").value = (block.tags || []).join(", ");
+  drawTagSuggestions();
+  $("goal-dialog").showModal();
+  $("goal-text").focus();
+  $("goal-text").select();
+}
+
+// Tags you've used before, one click away — so a project name gets typed out
+// in full exactly once and stays spelled the same everywhere after that.
+function drawTagSuggestions() {
+  const row = $("goal-suggest");
+  row.innerHTML = "";
+  (state.tags || []).forEach((tag) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.textContent = "+ " + tag;
+    chip.onclick = () => {
+      const field = $("goal-tags");
+      const have = field.value.split(",").map((t) => t.trim().toLowerCase());
+      if (!have.includes(tag.toLowerCase())) {
+        field.value = field.value.trim()
+          ? field.value.replace(/,\s*$/, "") + ", " + tag
+          : tag;
+      }
+      field.focus();
+    };
+    row.appendChild(chip);
+  });
+}
+
+$("goal-cancel").onclick = () => $("goal-dialog").close();
+
+$("goal-form").onsubmit = async (event) => {
+  event.preventDefault();  // the PATCH decides whether the dialog closes
+  const block = state.editing;
+  if (!block) return;
+  $("goal-save").disabled = true;
+  try {
+    await api("/api/blocks/" + block.id, {
+      method: "PATCH",
+      body: JSON.stringify({
+        goal: $("goal-text").value,
+        tags: $("goal-tags").value,
+      }),
+    });
+    $("goal-dialog").close();
+    state.editing = null;
+    await refreshView();
+  } catch (error) {
+    say(error.message);
+  } finally {
+    $("goal-save").disabled = false;
+  }
+};
+
+$("goals-scope-month").onclick = () => {
+  state.goalScope = "month";
+  refreshGoals();
+};
+
+$("goals-scope-all").onclick = () => {
+  state.goalScope = "all";
+  refreshGoals();
+};
+
+$("goals-untitled").onclick = () => {
+  state.showUntitled = !state.showUntitled;
+  if (state.goals) paintGoals(state.goals);  // pure filter — no refetch needed
+};
+
+
 async function boot() {
   const first = await api("/api/week");
   state.week = first;
@@ -1232,6 +1858,15 @@ async function boot() {
       const title = document.createElement("div");
       title.className = "fc-event-title";
       title.textContent = arg.event.title;
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "block-edit";
+      edit.title = "Set a goal for this block";
+      edit.textContent = "\u270e";
+      edit.onclick = (evt) => {
+        evt.stopPropagation();  // don't let this reach the drag/select handling
+        openGoalEditor(arg.event.extendedProps.block);
+      };
       const del = document.createElement("button");
       del.type = "button";
       del.className = "block-delete";
@@ -1241,7 +1876,7 @@ async function boot() {
         evt.stopPropagation();  // don't let this reach the block's own drag/select handling
         deleteBlock(arg.event.id, arg.event.title);
       };
-      wrap.append(time, title, del);
+      wrap.append(time, title, edit, del);
       return { domNodes: [wrap] };
     },
     // The calendar owns navigation. When its range changes we fetch data for
@@ -1278,13 +1913,22 @@ async function boot() {
 }
 
 // The arrows step whatever unit is on screen.
-$("prev").onclick = () =>
-  state.view === "week" ? state.calendar && state.calendar.prev() : stepMonth(-1);
-$("next").onclick = () =>
-  state.view === "week" ? state.calendar && state.calendar.next() : stepMonth(1);
+// The arrows step whichever unit is on screen; in the goals view that's the
+// month the list is showing.
+function step(delta) {
+  if (state.view === "week") {
+    if (state.calendar) delta < 0 ? state.calendar.prev() : state.calendar.next();
+    return;
+  }
+  stepMonth(delta);
+}
+
+$("prev").onclick = () => step(-1);
+$("next").onclick = () => step(1);
 
 $("tab-week").onclick = () => setView("week");
 $("tab-month").onclick = () => setView("month");
+$("tab-goals").onclick = () => setView("goals");
 
 $("refresh").onclick = async () => {
   $("refresh").disabled = true;

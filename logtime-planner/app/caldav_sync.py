@@ -29,27 +29,43 @@ def _stamp(moment: datetime) -> str:
     return moment.astimezone(settings.tz).strftime("%Y%m%dT%H%M%S")
 
 
-def _ics(block: store.Block) -> str:
-    note = block.note.strip()
-    if note.lower() == "auto":
-        note = ""  # legacy rows created before auto-blocks stopped being labelled
-    title = note or "42 planned hours"
-    return "\r\n".join(
-        [
-            "BEGIN:VCALENDAR",
-            "VERSION:2.0",
-            "PRODID:-//logtime-planner//EN",
-            "BEGIN:VEVENT",
-            f"UID:{_uid(block.id)}",
-            f"DTSTAMP:{datetime.now(settings.tz).strftime('%Y%m%dT%H%M%SZ')}",
-            f"DTSTART;TZID={settings.timezone}:{_stamp(block.start)}",
-            f"DTEND;TZID={settings.timezone}:{_stamp(block.end)}",
-            f"SUMMARY:{title} · {block.hours:.1f}h",
-            "CATEGORIES:42",
-            "END:VEVENT",
-            "END:VCALENDAR",
-        ]
+def _escape(text: str) -> str:
+    """iCalendar TEXT escaping (RFC 5545 §3.3.11). Fixed titles never needed
+    this; a goal you typed yourself may well contain a comma or a semicolon,
+    and an unescaped one would split the property into two values."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
     )
+
+
+def _ics(block: store.Block) -> str:
+    # "42 planned hours · 1.8h", plus the goal when there is one. The hours
+    # stay in the title either way — the goal is an addition to the label,
+    # not a replacement for it.
+    parts = ["42 planned hours", f"{block.hours:.1f}h"]
+    if block.goal:
+        parts.append(block.goal)
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//logtime-planner//EN",
+        "BEGIN:VEVENT",
+        f"UID:{_uid(block.id)}",
+        f"DTSTAMP:{datetime.now(settings.tz).strftime('%Y%m%dT%H%M%SZ')}",
+        f"DTSTART;TZID={settings.timezone}:{_stamp(block.start)}",
+        f"DTEND;TZID={settings.timezone}:{_stamp(block.end)}",
+        f"SUMMARY:{_escape(' · '.join(parts))}",
+        # Tags ride along as extra categories. Calendar.app doesn't show them,
+        # but they survive the round trip and keep the event searchable.
+        "CATEGORIES:" + ",".join(["42"] + [_escape(tag) for tag in block.tags]),
+    ]
+    if block.tags:
+        lines.append("DESCRIPTION:" + _escape(" ".join("#" + t for t in block.tags)))
+    lines += ["END:VEVENT", "END:VCALENDAR"]
+    return "\r\n".join(lines)
 
 
 def _secret_reminder_ics(expires_on: date) -> str:
