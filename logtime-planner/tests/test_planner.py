@@ -156,6 +156,20 @@ def test_flag_unlogged_skips_blocks_not_due_yet():
     assert flagged == []
 
 
+def test_flag_unlogged_catches_the_elapsed_part_of_a_running_block():
+    block = FakeBlock("b1", at(3, 6), at(3, 18))
+    # Planned from 06:00, only clocked in at noon; it's now 13:00.
+    flagged = planner.flag_unlogged([block], [(at(3, 12), at(3, 13))], now=at(3, 13))
+    assert flagged[0].hours == 6
+    assert flagged[0].gaps == [(at(3, 6), at(3, 12))]
+
+
+def test_flag_unlogged_ignores_a_running_block_clocked_so_far():
+    block = FakeBlock("b1", at(3, 9), at(3, 18))
+    flagged = planner.flag_unlogged([block], [(at(3, 9), at(3, 13))], now=at(3, 13))
+    assert flagged == []
+
+
 def test_flag_unlogged_tolerates_a_small_gap():
     block = FakeBlock("b1", at(3, 9), at(3, 11))
     # Clocked out two minutes early — well inside the default 5-minute tolerance.
@@ -303,16 +317,30 @@ def test_month_separates_hours_to_log_from_hours_to_place():
     assert summary.on_track is False
 
 
-def test_month_on_track_once_the_plan_covers_the_target():
+def test_month_on_track_once_the_plan_goes_past_the_target():
+    summary = month(
+        clocked={date(2026, 8, 3): timedelta(hours=60)},
+        blocks=[FakeBlock("b", at(25, 9), at(25, 19)),
+                FakeBlock("c", at(26, 9), at(26, 19)),
+                FakeBlock("d", at(27, 9), at(27, 20))],
+    )
+    assert summary.remaining_hours == 0     # nothing left to place
+    assert summary.to_log_hours == 30       # but 30h still has to be clocked
+    assert summary.on_track is True
+
+
+def test_month_exactly_on_target_is_not_enough():
+    # 60h logged + 30h planned is exactly 90: the target has to be exceeded.
     summary = month(
         clocked={date(2026, 8, 3): timedelta(hours=60)},
         blocks=[FakeBlock("b", at(25, 9), at(25, 19)),
                 FakeBlock("c", at(26, 9), at(26, 19)),
                 FakeBlock("d", at(27, 9), at(27, 19))],
     )
-    assert summary.remaining_hours == 0     # nothing left to place
-    assert summary.to_log_hours == 30       # but 30h still has to be clocked
-    assert summary.on_track is True
+    assert summary.on_track is False
+    logged = month(clocked={date(2026, 8, 3): timedelta(hours=90)})
+    assert logged.met is False
+    assert month(clocked={date(2026, 8, 3): timedelta(hours=90, minutes=1)}).met is True
 
 
 def test_month_target_met_is_clamped_not_negative():
@@ -356,6 +384,50 @@ def test_month_labels_come_from_the_month_not_from_today():
     assert summary.as_dict()["label"] == "August"
     assert summary.as_dict()["longLabel"] == "August 2026"
     assert summary.as_dict()["start"] == "2026-08-01"
+
+
+def test_totals_by_month_covers_every_month_including_empty_ones():
+    clocked = {
+        date(2025, 5, 2): timedelta(hours=5),
+        date(2025, 5, 20): timedelta(hours=3),
+        date(2025, 7, 1): timedelta(hours=4),
+        date(2025, 4, 30): timedelta(hours=9),  # before `since`
+    }
+    totals = planner.totals_by_month(clocked, date(2025, 5, 1), date(2025, 7, 15))
+    assert [(t.start, t.hours, t.days) for t in totals] == [
+        (date(2025, 5, 1), 8, 2),
+        (date(2025, 6, 1), 0, 0),
+        (date(2025, 7, 1), 4, 1),
+    ]
+    assert totals[-1].end == date(2025, 8, 1)
+
+
+def test_totals_by_month_wraps_the_year():
+    totals = planner.totals_by_month({}, date(2025, 11, 1), date(2026, 2, 3))
+    assert [t.start for t in totals] == [
+        date(2025, 11, 1), date(2025, 12, 1), date(2026, 1, 1), date(2026, 2, 1)
+    ]
+
+
+def test_totals_by_week_starts_at_the_first_full_week():
+    clocked = {
+        date(2025, 5, 4): timedelta(hours=2),   # Sunday before the first full week
+        date(2025, 5, 5): timedelta(hours=6),   # Monday — week one
+        date(2025, 5, 12): timedelta(hours=3),  # Monday — week two
+    }
+    # 2025-05-01 is a Thursday; the first Monday on or after it is the 5th.
+    weeks = planner.totals_by_week(clocked, date(2025, 5, 1), date(2025, 5, 13), 0)
+    assert [(w.start, w.hours) for w in weeks] == [
+        (date(2025, 5, 5), 6),
+        (date(2025, 5, 12), 3),
+    ]
+    assert weeks[-1].as_dict(date(2025, 5, 13))["current"] is True
+    assert weeks[0].as_dict(date(2025, 5, 13))["current"] is False
+
+
+def test_totals_by_week_on_a_week_start_needs_no_shift():
+    weeks = planner.totals_by_week({}, date(2025, 5, 5), date(2025, 5, 6), 0)
+    assert [w.start for w in weeks] == [date(2025, 5, 5)]
 
 
 if __name__ == "__main__":

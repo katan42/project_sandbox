@@ -134,9 +134,17 @@ or starts so soon after one ends that you couldn't get there
 (`TRAVEL_BUFFER_MINUTES`).
 
 Below the rail, the month strip tracks the same two quantities against
-`MONTHLY_TARGET_HOURS` (default 90), for **the month the week you're looking at
-mostly falls in** — step the grid into October and the strip goes with it. A
-week straddling two months belongs to whichever holds most of it.
+`MONTHLY_TARGET_HOURS` (default 90), for **every month the week you're looking
+at touches** — step the grid into October and the strip goes with it. A week
+straddling two months gets a row for each, so the last few days of September
+still show September's hours owed (and its month-end flag) from the first week
+of October.
+
+A planned block that has started is checked against intra as it runs: the part
+that has already passed without a clocked session is striped orange, and the
+rest of the block stays as it was. Each block also carries a faint dotted line
+42 minutes before its end, with the time beside it — on the page only, never
+sent to iCloud.
 
 ### Month
 
@@ -154,6 +162,14 @@ Days with planned time that never got logged say so.
 *Send to iCloud* and *Sync from iCloud* are off in this tab — both are
 week-shaped operations, so rather than doing something silently partial they
 point you back to a week.
+
+### Summary
+
+Everything clocked since `SUMMARY_SINCE` (default 2025-05-01): a column per
+month in time order against the monthly target, then the same months and every
+logtime week as tables, newest first. Weeks start from the first full week on or
+after `SUMMARY_SINCE`, so there is no part-week at the top. The current month and week are marked
+*so far*. Click a month or a week to open it.
 
 ### Goals
 
@@ -203,6 +219,11 @@ The month readout deliberately separates three things that are easy to conflate:
 - **to place** — hours that aren't even on the grid yet.
 - **to log** — hours that still have to appear on intra, planned or not.
 
+The monthly target has to be **exceeded**: exactly 90.0h logged is not met, and
+a plan landing on exactly 90.0h is not covered. Hours still owed round up, so a
+month that isn't met never reads "0.0h to log", and **Fill the month** aims just
+past the target rather than onto it.
+
 So `covered by the plan · 22.0h still to log · 5 days left` means the grid adds
 up to 90 but you haven't done it yet, while `target met · 90.4h logged` means
 the hours are banked. **Fill the month** closes *to place*; only showing up
@@ -220,6 +241,7 @@ everything else in the header:
 
 It carries its own **Fill the month** button, and it shows on both tabs. It
 hides once the target is met, and never appears for a month that's already over.
+In a week that straddles two months it is about the month that is ending.
 
 ### The Friday scenario
 
@@ -361,7 +383,8 @@ tallies. If it doesn't, that's a bug, not a rounding artefact.
 
 **The month says something different from the week** — check which month the
 strip is reporting on. It follows the week you're viewing, not today's date, so
-a week in late September and a week in early October will show different months.
+a week in late September and a week in early October will show different months
+(and a week that straddles both shows both).
 
 ---
 

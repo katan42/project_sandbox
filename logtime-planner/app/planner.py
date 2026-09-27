@@ -9,7 +9,7 @@ Vocabulary used throughout:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 
 Interval = tuple[datetime, datetime]
@@ -194,6 +194,9 @@ def summarise(
 class UnloggedBlock:
     block_id: str
     hours: float
+    # The uncovered stretches themselves, so the UI can hatch just those
+    # rather than the whole block.
+    gaps: list[Interval] = field(default_factory=list)
 
 
 def flag_unlogged(
@@ -202,20 +205,22 @@ def flag_unlogged(
     now: datetime,
     tolerance_minutes: int = 5,
 ) -> list[UnloggedBlock]:
-    """Past blocks whose planned time was not actually clocked, in whole or in
-    part. A block within `tolerance_minutes` of full coverage doesn't count —
-    intra's own rounding shouldn't trip a flag every single week."""
+    """Blocks whose planned time — so far — was not actually clocked, in whole
+    or in part. A block still in progress is judged on the part that has
+    already elapsed: planning 06:00 and clocking in at noon is a miss now, not
+    once the block ends. A block within `tolerance_minutes` of full coverage
+    doesn't count — intra's own rounding shouldn't trip a flag every week."""
     tolerance = tolerance_minutes / 60
     flagged: list[UnloggedBlock] = []
     for block in blocks:
-        if block.end > now:
-            continue  # not due yet, nothing to compare against
-        # Whatever part of the block isn't covered by a clocked session is
-        # the part that got planned but never actually happened.
-        gaps = subtract((block.start, block.end), sessions)
+        if block.start >= now:
+            continue  # not started yet, nothing to compare against
+        # Whatever elapsed part of the block isn't covered by a clocked
+        # session is the part that got planned but never actually happened.
+        gaps = subtract((block.start, min(block.end, now)), sessions)
         uncovered = sum((g[1] - g[0]).total_seconds() for g in gaps) / 3600
         if uncovered > tolerance:
-            flagged.append(UnloggedBlock(block.id, round(uncovered, 2)))
+            flagged.append(UnloggedBlock(block.id, round(uncovered, 2), gaps))
     return flagged
 
 
@@ -324,20 +329,28 @@ class MonthSummary:
         """Where you land if you show up to everything still on the grid."""
         return self.clocked_hours + self.planned_future_hours
 
+    # The monthly target has to be *exceeded*: exactly 90h logged is not 90h
+    # met. `met` and `on_track` are the only verdicts; the hour figures below
+    # can read 0 at exact equality while neither is true yet.
+
+    @property
+    def met(self) -> bool:
+        return self.clocked_hours > self.target_hours
+
     @property
     def to_log_hours(self) -> float:
         """Hours that still have to appear on intra, planned or not. This is
         the honest month-end number — a planned block is not a logged hour."""
-        return max(0.0, self.target_hours - self.clocked_hours)
+        return 0.0 if self.met else max(0.0, self.target_hours - self.clocked_hours)
 
     @property
     def remaining_hours(self) -> float:
         """Hours that aren't even on the grid yet."""
-        return max(0.0, self.target_hours - self.projected_hours)
+        return 0.0 if self.on_track else max(0.0, self.target_hours - self.projected_hours)
 
     @property
     def on_track(self) -> bool:
-        return self.projected_hours >= self.target_hours - 0.01
+        return self.projected_hours > self.target_hours
 
     @property
     def per_day_hours(self) -> float:
@@ -359,6 +372,7 @@ class MonthSummary:
             "remaining": round(self.remaining_hours, 2),
             "perDay": round(self.per_day_hours, 2),
             "onTrack": self.on_track,
+            "met": self.met,
             "daysLeft": self.days_left,
             # `start` lets any consumer of this dict re-request the same month
             # without having to parse the label back into a date.
@@ -402,3 +416,68 @@ def summarise_month(
         days_left=days_left,
         first_day=first,
     )
+
+
+@dataclass
+class PeriodTotal:
+    """Clocked hours for one month or one week of the summary history."""
+
+    start: date
+    end: date  # exclusive
+    hours: float
+    days: int  # days with any time logged at all
+
+    def as_dict(self, today: date) -> dict:
+        return {
+            "start": self.start.isoformat(),
+            "end": self.end.isoformat(),
+            "hours": round(self.hours, 2),
+            "days": self.days,
+            # Still running, so its total is "so far", not final.
+            "current": self.start <= today < self.end,
+        }
+
+
+def _next_month(first: date) -> date:
+    return date(first.year + first.month // 12, first.month % 12 + 1, 1)
+
+
+def _total(clocked: dict[date, timedelta], start: date, end: date, since: date) -> PeriodTotal:
+    inside = [
+        duration
+        for day, duration in clocked.items()
+        if max(start, since) <= day < end and duration > timedelta()
+    ]
+    return PeriodTotal(
+        start, end, sum(d.total_seconds() for d in inside) / 3600, len(inside)
+    )
+
+
+def totals_by_month(
+    clocked: dict[date, timedelta], since: date, today: date
+) -> list[PeriodTotal]:
+    """Every calendar month from `since`'s month through today's, oldest
+    first. Months with nothing logged are kept at zero — a gap in the history
+    is part of the history."""
+    out: list[PeriodTotal] = []
+    first = since.replace(day=1)
+    while first <= today:
+        following = _next_month(first)
+        out.append(_total(clocked, first, following, since))
+        first = following
+    return out
+
+
+def totals_by_week(
+    clocked: dict[date, timedelta], since: date, today: date, week_start_day: int
+) -> list[PeriodTotal]:
+    """Every logtime week from the first one starting on or after `since`
+    through the current one, oldest first — no part-week at the start.
+    `week_start_day` is 0=Monday..6=Sunday, as in config."""
+    out: list[PeriodTotal] = []
+    first = since + timedelta(days=(week_start_day - since.weekday()) % 7)
+    while first <= today:
+        following = first + timedelta(days=7)
+        out.append(_total(clocked, first, following, since))
+        first = following
+    return out

@@ -145,10 +145,11 @@ Two more checks run once intra is configured:
 - A block straddling `now` only counts its remaining half toward the weekly
   and monthly "planned" totals — the elapsed half is already inside `clocked`,
   so counting both would double it (`planner.split_future_past`).
-- A block whose end time has passed is checked against actual clocked
-  sessions; any part left uncovered (beyond a 5-minute tolerance) is flagged
-  "unlogged" — shown hatched on the grid and rolled into the *not logged*
-  figure (`planner.flag_unlogged`).
+- A block that has started is checked against actual clocked sessions up to
+  `now`; any elapsed part left uncovered (beyond a 5-minute tolerance) is
+  flagged "unlogged" — that stretch is hatched on the grid and rolled into the
+  *not logged* figure (`planner.flag_unlogged`). Skipped while intra is
+  returning an error, since no sessions is not the same as none happening.
 
 ---
 
@@ -178,6 +179,7 @@ network; only **Refresh from intra** (`?refresh=true`) bypasses the cache.
 | `GET` | `/` | The single-page UI. Sends `Cache-Control: no-store`. |
 | `GET` | `/api/week?date_=&refresh=` | Everything the UI needs for one week |
 | `GET` | `/api/month?date_=&refresh=` | The same for one calendar month |
+| `GET` | `/api/summary?refresh=` | Clocked hours per month and per week since `SUMMARY_SINCE` |
 | `GET` | `/api/goals?date_=&scope=&tag=` | Planned blocks grouped by day, for the goals page |
 | `POST` | `/api/blocks` | Create a block `{start, end, goal?, tags?}` |
 | `PATCH` | `/api/blocks/{id}` | Change any subset of `{start, end, goal, tags}` |
@@ -208,6 +210,7 @@ server-side. Omit it for the current week.
                  "toLog": 19.3, "remaining": 19.3, "perDay": 2.14,
                  "onTrack": false, "daysLeft": 9, "start": "2026-08-01",
                  "label": "August", "longLabel": "August 2026" },
+  "months":    [ /* one `month` object per month the week touches, oldest first */ ],
   "clockedByDay": { "2026-08-18": 5.1, "2026-08-19": 0.3 },
   "blocks":    [ { "id": "...", "start": "...", "end": "...",
                    "goal": "Finish CPP00 ex02", "tags": ["CPP00"],
@@ -217,7 +220,8 @@ server-side. Omit it for the current week.
                    "source": "Work" } ],
   "conflicts": [ { "blockId": "...", "reason": "overlaps",
                    "against": "Class (Work)" } ],
-  "unlogged":  [ { "blockId": "...", "hours": 1.5 } ],
+  "unlogged":  [ { "blockId": "...", "hours": 1.5,
+                   "gaps": [ ["2026-08-18T06:00:00+08:00", "2026-08-18T07:30:00+08:00"] ] } ],
   "dayWindow": { "start": "08:00", "end": "23:00" },
   "gridWindow": { "start": "00:00", "end": "24:00" },
   "openSince": null,
@@ -372,6 +376,7 @@ pre-computed, which keeps the maths in one place.
 | `WEEKLY_TARGET_HOURS` | `20` | Drives the rail and auto-fill |
 | `MONTHLY_TARGET_HOURS` | `90` | Drives the month strip only |
 | `WEEK_START_DAY` | `0` | 0=Mon … 6=Sun |
+| `SUMMARY_SINCE` | `2025-05-01` | First day the Summary tab covers (weeks start at the first full week after it) |
 | `DAY_WINDOW_START` | `08:00` | Earliest auto-fill will place a block |
 | `DAY_WINDOW_END` | `23:00` | Latest |
 | `MIN_BLOCK_MINUTES` | `60` | Shortest auto-placed block |

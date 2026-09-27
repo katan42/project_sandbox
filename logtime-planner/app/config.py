@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import time
+from datetime import date, time
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -34,6 +34,8 @@ class Settings:
     weekly_target_hours: float = float(os.getenv("WEEKLY_TARGET_HOURS", "20"))
     monthly_target_hours: float = float(os.getenv("MONTHLY_TARGET_HOURS", "90"))
     week_start_day: int = int(os.getenv("WEEK_START_DAY", "0"))
+    # Where the summary tab's history begins.
+    summary_since: date = date.fromisoformat(os.getenv("SUMMARY_SINCE", "2025-05-01"))
 
     day_window_start: time = _time("DAY_WINDOW_START", "08:00")
     day_window_end: time = _time("DAY_WINDOW_END", "23:00")

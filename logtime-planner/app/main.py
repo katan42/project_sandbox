@@ -20,6 +20,10 @@ from .ft_api import SECRET_WARN_DAYS, FtApiError, client
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 CACHE_TTL_SECONDS = 120
+# Hours under this round to "0.0" on the page, so they count as nothing here
+# too. Without it a 0.04h gap would still be "filled" — autofill rounds the
+# closing piece up — with a 15-minute block nobody asked for.
+NIL_HOURS = 0.05
 
 app = FastAPI(title="42 logtime planner")
 _cache: dict[str, tuple[float, object]] = {}
@@ -93,7 +97,7 @@ def _load_month(anchor: date, force: bool = False) -> dict:
     )
     unlogged = (
         planner.flag_unlogged(planner.clip(blocks, (start, end)), sessions, now)
-        if settings.ft_enabled
+        if settings.ft_enabled and intra_error is None
         else []
     )
 
@@ -159,9 +163,13 @@ def _load_week(anchor: date, force: bool = False) -> dict:
         for day, duration in sorted(clocked.items())
     }
 
-    # The strip under the week rail reports on the month this week mostly
-    # falls in, so stepping the grid into a new month moves the strip with it.
-    month = _load_month(month_of_week(start.date()), force)["summary"]
+    # One strip per month the week touches: a week straddling a month end
+    # still owes hours to the month that is ending, and that is exactly when
+    # they matter most. `month` stays the one the week mostly falls in — it is
+    # what the Month and Goals tabs open on.
+    touched = sorted({start.date().replace(day=1), (end - timedelta(days=1)).date().replace(day=1)})
+    months = {first: _load_month(first, force)["summary"] for first in touched}
+    month = months[month_of_week(start.date()).replace(day=1)]
 
     conflicts = planner.find_conflicts(
         blocks, busy, timedelta(minutes=settings.travel_buffer_minutes)
@@ -169,8 +177,13 @@ def _load_week(anchor: date, force: bool = False) -> dict:
 
     # Only meaningful once intra has weighed in — without it there is no
     # source of truth to compare the plan against, and everything past would
-    # look unlogged.
-    unlogged = planner.flag_unlogged(blocks, sessions, now) if settings.ft_enabled else []
+    # look unlogged. Same when intra errored: no sessions came back, which is
+    # not the same as none happening.
+    unlogged = (
+        planner.flag_unlogged(blocks, sessions, now)
+        if settings.ft_enabled and intra_error is None
+        else []
+    )
 
     summary_dict = summary.as_dict()
     # Not part of WeekSummary itself — it's a separate reconciliation figure,
@@ -199,13 +212,21 @@ def _load_week(anchor: date, force: bool = False) -> dict:
             for begin, finish in sorted(sessions)
         ],
         "month": month,
+        "months": list(months.values()),
         "blocks": [block.as_dict() for block in blocks],
         "busy": [event.as_dict() for event in busy],
         "conflicts": [
             {"blockId": c.block_id, "reason": c.reason, "against": c.against}
             for c in conflicts
         ],
-        "unlogged": [{"blockId": u.block_id, "hours": u.hours} for u in unlogged],
+        "unlogged": [
+            {
+                "blockId": u.block_id,
+                "hours": u.hours,
+                "gaps": [[a.isoformat(), b.isoformat()] for a, b in u.gaps],
+            }
+            for u in unlogged
+        ],
         # Every tag in use, so the goal editor can offer them without a
         # second round trip — a project name gets typed in full once.
         "tags": store.known_tags(),
@@ -302,6 +323,46 @@ def get_week(date_: str | None = None, refresh: bool = False):
 @app.get("/api/month")
 def get_month(date_: str | None = None, refresh: bool = False):
     return _load_month(_anchor(date_), force=refresh)
+
+
+@app.get("/api/summary")
+def get_summary(refresh: bool = False):
+    """Clocked hours per month and per week since SUMMARY_SINCE. Built from
+    locations_stats — one call covers the whole history — with the current
+    month topped up from sessions, the same way the month view is, so a
+    session that is still running counts here too."""
+    now = datetime.now(settings.tz)
+    today = now.date()
+    clocked: dict[date, timedelta] = {}
+    intra_error = None
+    if settings.ft_enabled:
+        try:
+            clocked = dict(_cached("logtime", client.all_logtime, refresh))
+            start, end = month_bounds(today)
+            sessions = _cached(
+                f"sessions:month:{start.date()}",
+                lambda: client.sessions_between(start, end),
+                refresh,
+            )
+            clocked.update(planner.hours_by_day(sessions, settings.tz))
+        except FtApiError as exc:
+            intra_error = str(exc)
+    else:
+        intra_error = "Intra isn't configured (FT_UID / FT_SECRET / FT_LOGIN)."
+
+    since = settings.summary_since
+    months = planner.totals_by_month(clocked, since, today)
+    weeks = planner.totals_by_week(clocked, since, today, settings.week_start_day)
+    return {
+        "since": since.isoformat(),
+        "now": now.isoformat(),
+        "monthlyTarget": settings.monthly_target_hours,
+        "weeklyTarget": settings.weekly_target_hours,
+        # Oldest first; the page reverses them for its tables.
+        "months": [m.as_dict(today) for m in months],
+        "weeks": [w.as_dict(today) for w in weeks],
+        "intraError": intra_error,
+    }
 
 
 @app.post("/api/blocks")
@@ -437,15 +498,20 @@ def rebalance(date_: str | None = None, scope: str = "week"):
     if scope == "month":
         view = _load_month(anchor)
         start, end = month_bounds(anchor)
-        deficit = view["summary"]["remaining"]
+        covered = view["summary"]["onTrack"]
+        # The month has to finish *over* its target, so aim a minute past it;
+        # the quarter-hour rounding of the closing block does the rest. Aiming
+        # at `remaining` alone can plan you onto exactly 90.00h.
+        deficit = view["summary"]["remaining"] + 1 / 60
         subject = view["summary"]["longLabel"]
     else:
         view = _load_week(anchor)
         start, end = week_bounds(anchor)
         deficit = view["summary"]["deficit"]
+        covered = deficit < NIL_HOURS
         subject = "the week"
 
-    if deficit <= 0:
+    if covered:
         return {
             "placed": 0,
             "hours": 0.0,
@@ -501,7 +567,7 @@ def rebalance(date_: str | None = None, scope: str = "week"):
     placements: list[tuple[datetime, datetime]] = []
     for cap in caps:
         shortfall = deficit - sum((f - b).total_seconds() / 3600 for b, f in placements)
-        if shortfall <= 0.01:
+        if shortfall <= 0.01:  # autofill's own granularity
             break
         windows = planner.free_windows(
             days=days,
@@ -528,8 +594,10 @@ def rebalance(date_: str | None = None, scope: str = "week"):
 
     placed_hours = sum((f - b).total_seconds() / 3600 for b, f in placements)
     # Clamped: rounding the last block up to a quarter hour can overshoot the
-    # deficit slightly, and "-0.1h short" is not a thing.
-    shortfall = round(max(0.0, deficit - placed_hours), 2)
+    # deficit slightly, and "-0.1h short" is not a thing. Rounded *up* to the
+    # tenth it is shown at, so a real shortfall never reads "0.0h short".
+    leftover = deficit - placed_hours
+    shortfall = math.ceil(leftover * 10) / 10 if leftover > 0.01 else 0.0
     covered = subject[0].upper() + subject[1:]  # not .capitalize(), which would
     return {                                    # flatten "September" to "september"
         "placed": len(placements),
@@ -538,7 +606,7 @@ def rebalance(date_: str | None = None, scope: str = "week"):
         "detail": (
             f"Placed {placed_hours:.1f}h. Still {shortfall:.1f}h short — "
             "widen your day window or free up time."
-            if shortfall > 0.01
+            if shortfall > 0
             else f"Placed {placed_hours:.1f}h. {covered} is covered."
         ),
     }

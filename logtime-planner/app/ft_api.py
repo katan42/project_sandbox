@@ -160,9 +160,15 @@ class FtClient:
         return found
 
     def all_logtime(self) -> dict[date, timedelta]:
-        """Every day intra has a record for. One call feeds both the week and
-        the month view, which keeps us well clear of the rate limit."""
-        raw = self._get(f"/users/{settings.ft_login}/locations_stats")
+        """Every day intra has a record for. One call feeds the week, month and
+        summary views, which keeps us well clear of the rate limit.
+
+        `begin_at` is not optional in practice: without it intra quietly
+        returns only the last few months, so older months would read as 0h.
+        2013 is 42's founding year — nothing can be older than that."""
+        raw = self._get(
+            f"/users/{settings.ft_login}/locations_stats", {"begin_at": "2013-01-01"}
+        )
         out: dict[date, timedelta] = {}
         for day_str, duration_str in raw.items():
             try:

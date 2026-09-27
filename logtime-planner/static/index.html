@@ -168,14 +168,19 @@
 
   .monthstrip {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    gap: 8px;
     margin-top: 18px;
     padding-top: 14px;
     border-top: 1px solid var(--rule);
     font-family: var(--mono);
     font-size: 12px;
     color: var(--muted);
+  }
+  .monthstrip .mrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     flex-wrap: wrap;
   }
   .monthstrip .mlabel {
@@ -362,6 +367,110 @@
   .mcell .mfigs .dpl { color: var(--planned); }
   .mcell .mfigs .dmiss { color: var(--warn); }
 
+  /* ---- Summary ------------------------------------------------------- */
+
+  /* The banner has nothing week- or month-shaped to report here, and the
+     arrows have nothing to step: only the refresh button stays. */
+  .banner.is-summary .rail,
+  .banner.is-summary .figure,
+  .banner.is-summary .weeknav,
+  .banner.is-summary #fill,
+  .banner.is-summary #push,
+  .banner.is-summary #pull { display: none; }
+
+  .sumtitle {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .sumhead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .sumstat { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .sumchart { position: relative; margin-bottom: 28px; }
+  .sumchart svg { display: block; width: 100%; overflow: visible; }
+  .sumchart .axis { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .sumchart .axis.year { fill: var(--ink); }
+  .sumchart .cap { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .sumchart .grid { stroke: #eceef1; stroke-width: 1; }
+  .sumchart .base { stroke: var(--rule); stroke-width: 1; }
+  .sumchart .target { stroke: var(--warn); stroke-width: 1; }
+  .sumchart .bar { fill: var(--clocked); }
+  .sumchart .bar.current { fill: url(#sum-hatch); }
+  .sumchart .hit { fill: transparent; cursor: pointer; outline: none; }
+  /* Only the bands take the pointer; a bar or label drawn over one would
+     otherwise count as leaving it. */
+  .sumchart svg :not(.hit) { pointer-events: none; }
+  .sumchart .hit:hover + .bar,
+  .sumchart .hit:focus-visible + .bar { opacity: 0.8; }
+  .sumchart .hit:focus-visible { stroke: var(--planned); stroke-width: 2; }
+  .sumtip {
+    position: absolute;
+    pointer-events: none;
+    transform: translate(-50%, calc(-100% - 8px));
+    background: var(--ink);
+    color: var(--surface);
+    padding: 6px 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .sumtip b { font-weight: 500; font-size: 14px; }
+  .sumtip .sub { color: #b9c0ca; }
+
+  .sumtables {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 24px 32px;
+    align-items: start;
+  }
+  .sumtable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sumtable th {
+    text-align: right;
+    font-weight: 400;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sumtable td {
+    text-align: right;
+    padding: 6px 8px;
+    border-bottom: 1px dotted var(--rule);
+  }
+  .sumtable th:first-child,
+  .sumtable td:first-child { text-align: left; padding-left: 0; }
+  .sumtable td.dim { color: var(--muted); }
+  .sumtable td.short { color: var(--warn); }
+  .sumtable td .sofar {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--planned);
+  }
+  .sumtable tbody tr { cursor: pointer; }
+  .sumtable tbody tr:hover { background: #f6f8f9; }
+  .sumtable tbody tr:focus-visible { outline: 2px solid var(--planned); outline-offset: -2px; }
+
   /* ---- Grid --------------------------------------------------------- */
 
   .grid-wrap {
@@ -432,13 +541,42 @@
     background: var(--warn);
     border-left-color: #7d2f08;
   }
-  .fc .plan-block.unlogged {
+  .fc .plan-block.unlogged { border-left-color: #7d2f08; }
+  /* Hatched over just the stretch of the block that should have been clocked
+     by now and wasn't — a block still running shows its missed start without
+     condemning the part that hasn't happened yet. */
+  .fc .plan-block .miss-gap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    /* Opaque teal/orange, not orange over whatever is underneath: a block
+       that also clashes with a calendar event is solid orange already, and
+       orange stripes on it would vanish. */
     background: repeating-linear-gradient(
       -45deg,
       var(--planned) 0 6px,
       var(--warn) 6px 12px
     );
-    border-left-color: #7d2f08;
+  }
+  .fc .plan-block .fc-event-time,
+  .fc .plan-block .fc-event-title { position: relative; } /* keep text above the hatching */
+  /* 42 minutes before the block ends. Page-only: never sent to iCloud. */
+  .fc .plan-block .mark-42 {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px dotted rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+  }
+  .fc .plan-block .mark-42 span {
+    position: absolute;
+    right: 3px;
+    bottom: 1px;
+    font-family: var(--mono);
+    font-size: 9px;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .fc .actual-block {
@@ -710,6 +848,7 @@
         <button class="tab is-on" id="tab-week" role="tab" aria-selected="true">Week</button>
         <button class="tab" id="tab-month" role="tab" aria-selected="false">Month</button>
         <button class="tab" id="tab-goals" role="tab" aria-selected="false">Goals</button>
+        <button class="tab" id="tab-summary" role="tab" aria-selected="false">Summary</button>
       </div>
       <span class="secret-flag" id="secret-flag" style="display:none" title="42 client secret — regenerate at profile.intra.42.fr">
         <span id="secret-flag-text"></span>
@@ -753,15 +892,8 @@
       </div>
     </div>
 
-    <div class="monthstrip" id="monthstrip">
-      <span class="mlabel" id="m-label">Month</span>
-      <div class="mrail" role="img" id="m-rail" aria-label="Month progress">
-        <div class="mrail-fill mrail-clocked" id="m-fill" style="width:0%"></div>
-        <div class="mrail-fill mrail-planned" id="m-fill-planned" style="width:0%"></div>
-      </div>
-      <span class="mfig"><b id="m-clocked">0.0</b> / <span id="m-target">90</span>h</span>
-      <span class="mfig" id="m-left">&nbsp;</span>
-    </div>
+    <!-- One row per month the week touches; filled in by drawMonths(). -->
+    <div class="monthstrip" id="monthstrip"></div>
 
     <div class="notice" id="notice"></div>
   </section>
@@ -788,6 +920,32 @@
       </div>
       <div id="goals-list"></div>
     </div>
+
+    <div id="summaryview" style="display:none">
+      <div class="sumhead">
+        <h2 class="sumtitle">Hours clocked per month</h2>
+        <span class="sumstat" id="sum-stat"></span>
+      </div>
+      <div class="sumchart" id="sum-chart">
+        <div class="sumtip" id="sum-tip" hidden></div>
+      </div>
+      <div class="sumtables">
+        <section>
+          <h2 class="sumtitle">By month</h2>
+          <table class="sumtable">
+            <thead><tr><th>Month</th><th>Clocked</th><th id="sum-mtarget">vs target</th><th>Days in</th></tr></thead>
+            <tbody id="sum-months"></tbody>
+          </table>
+        </section>
+        <section>
+          <h2 class="sumtitle">By week</h2>
+          <table class="sumtable">
+            <thead><tr><th>Week</th><th>Clocked</th><th id="sum-wtarget">vs target</th><th>Days in</th></tr></thead>
+            <tbody id="sum-weeks"></tbody>
+          </table>
+        </section>
+      </div>
+    </div>
   </div>
 
   <p class="hint" id="hint-week">
@@ -799,6 +957,12 @@
   <p class="hint" id="hint-month" style="display:none">
     Each cell is one day: solid bar is clocked, hatched is planned. Click a
     day to open its week and edit the plan there.
+  </p>
+
+  <p class="hint" id="hint-summary" style="display:none">
+    Straight from intra, including a session that is still running. Solid
+    bars are finished months, the striped one is this month so far. Click a
+    month or a week to open it.
   </p>
 
   <p class="hint" id="hint-goals" style="display:none">
@@ -835,6 +999,7 @@
 <script>
 const state = {
   view: "week",
+  summary: null,                     // summary view (whole history)
   anchor: null, week: null,          // week view
   monthAnchor: null, month: null,    // month view
   goals: null,                       // goals view (follows monthAnchor)
@@ -848,6 +1013,13 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const hours = (n) => (Math.round(n * 10) / 10).toFixed(1);
+// Anything under this rounds to "0.0" on screen, so it counts as nothing —
+// otherwise "0.0h to place" turns up next to a button offering to place it.
+const NIL = 0.05;
+// Hours still owed round *up*, never below 0.1: the monthly target has to be
+// exceeded, so exactly on it still owes something, and "0.0h to log" beside a
+// month that isn't met would be a lie.
+const owed = (n) => hours(Math.max(0.1, Math.ceil(n * 10 - 1e-6) / 10));
 
 // Never use toISOString() for a calendar day key — it converts to UTC, which
 // lands on the previous day for anyone east of Greenwich.
@@ -905,21 +1077,23 @@ function fillRail(target, clocked, planned, tickUnit, subject) {
   );
 }
 
-function setGap(deficit, spare, gapLabel, doneLabel) {
+// `deficit` and `spare` arrive formatted: the week and the month round them
+// differently (see `owed`), and which one applies is the caller's to know.
+function setGap(done, deficit, spare, gapLabel, doneLabel) {
   const gap = $("fig-gap");
-  if (deficit <= 0.01) {
+  if (done) {
     gap.className = "figure is-done";
-    $("v-gap").textContent = hours(spare);
+    $("v-gap").textContent = spare;
     $("l-gap").textContent = doneLabel;
   } else {
     gap.className = "figure is-gap";
-    $("v-gap").textContent = hours(deficit);
+    $("v-gap").textContent = deficit;
     $("l-gap").textContent = gapLabel;
   }
 }
 
 function setUnlogged(missed) {
-  $("fig-unlogged").style.display = missed > 0.01 ? "" : "none";
+  $("fig-unlogged").style.display = missed >= NIL ? "" : "none";
   $("v-unlogged").textContent = hours(missed);
 }
 
@@ -929,10 +1103,11 @@ function drawRail(summary) {
   fillRail(summary.target, summary.clocked, summary.plannedFuture, 1, "the week");
   $("v-clocked").textContent = hours(summary.clocked);
   $("v-planned").textContent = hours(summary.plannedFuture);
-  setGap(summary.deficit, summary.covered - summary.target, "to place", "hours spare");
+  setGap(summary.deficit < NIL, hours(summary.deficit),
+    hours(summary.covered - summary.target), "to place", "hours spare");
   setUnlogged(summary.plannedPastUnlogged || 0);
   $("fill").textContent = "Fill the gap";
-  $("fill").disabled = summary.deficit <= 0.01;
+  $("fill").disabled = summary.deficit < NIL;
 }
 
 function drawMonthReadout(month) {
@@ -941,28 +1116,43 @@ function drawMonthReadout(month) {
   fillRail(month.target, month.clocked, month.plannedFuture, 10, month.longLabel);
   $("v-clocked").textContent = hours(month.clocked);
   $("v-planned").textContent = hours(month.plannedFuture);
-  setGap(month.remaining, month.projected - month.target, "to place", "hours spare");
+  setGap(month.onTrack, owed(month.remaining),
+    hours(month.projected - month.target), "to place", "hours spare");
   setUnlogged(month.unlogged || 0);
   $("fill").textContent = "Fill the month";
-  $("fill").disabled = month.remaining <= 0.01;
+  $("fill").disabled = month.onTrack;
 }
 
 // Three states that the old single "target met" collapsed into one, and they
 // are not the same thing: hours banked, hours merely scheduled, hours short.
 function monthVerdict(month) {
   const days = month.daysLeft === 1 ? "1 day left" : month.daysLeft + " days left";
-  if (month.toLog <= 0.01) return "target met · " + hours(month.clocked) + "h logged";
-  if (month.remaining <= 0.01) {
-    return "covered by the plan · " + hours(month.toLog) + "h still to log · " + days;
+  // met / onTrack come from the server and mean strictly over the target.
+  if (month.met) return "target met · " + hours(month.clocked) + "h logged";
+  if (month.onTrack) {
+    return "covered by the plan · " + owed(month.toLog) + "h still to log · " + days;
   }
-  return hours(month.remaining) + "h to place · " + hours(month.toLog) + "h to log · " + days;
+  return owed(month.remaining) + "h to place · " + owed(month.toLog) + "h to log · " + days;
 }
 
-function drawMonth(month) {
-  if (!month) return;
-  $("m-label").textContent = month.label;
-  $("m-clocked").textContent = hours(month.clocked);
-  $("m-target").textContent = month.target;
+// One row per month the week touches. A week straddling a month end gets two:
+// the month that is ending still has hours owed, and that is exactly when
+// they matter most.
+function drawMonths(months) {
+  const strip = $("monthstrip");
+  strip.innerHTML = "";
+  months.filter(Boolean).forEach((month) => strip.appendChild(monthRow(month)));
+}
+
+function monthRow(month) {
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const row = el("div", "mrow");
+  const label = el("span", "mlabel", month.label);
 
   // Same stacking rule as the week rail: solid is logged, hatched is planned.
   // Before, this bar tracked clocked alone while the text beside it already
@@ -970,34 +1160,50 @@ function drawMonth(month) {
   const target = month.target || 1;
   const clockedPct = Math.min(100, (month.clocked / target) * 100);
   const plannedPct = Math.min(100 - clockedPct, (month.plannedFuture / target) * 100);
-  $("m-fill").style.width = clockedPct + "%";
-  $("m-fill-planned").style.width = plannedPct + "%";
-  $("m-rail").setAttribute(
+  const rail = el("div", "mrail");
+  rail.setAttribute("role", "img");
+  rail.setAttribute(
     "aria-label",
     `${hours(month.clocked)} hours logged and ${hours(month.plannedFuture)} planned of ${month.target} in ${month.longLabel}`
   );
-  $("m-left").textContent = monthVerdict(month);
+  const clocked = el("div", "mrail-fill mrail-clocked");
+  clocked.style.width = clockedPct + "%";
+  const planned = el("div", "mrail-fill mrail-planned");
+  planned.style.width = plannedPct + "%";
+  rail.append(clocked, planned);
+
+  const figure = el("span", "mfig");
+  figure.append(el("b", "", hours(month.clocked)), ` / ${month.target}h`);
+  row.append(label, rail, figure, el("span", "mfig", monthVerdict(month)));
+  return row;
 }
 
 // With a week or less to go, the number that matters is how many hours still
 // have to land on intra — planned hours are not logged hours. Hidden for a
 // month that is already over (daysLeft 0), where there is nothing to act on.
-function drawMonthFlag(month) {
+//
+// Takes one month or several (a week straddling a month end reports on both);
+// of several, the one that is ending is the one that can raise the flag.
+function drawMonthFlag(months) {
   const flag = $("month-flag");
-  if (!month || month.daysLeft < 1 || month.daysLeft > 7 || month.toLog <= 0.01) {
+  const month = [].concat(months || []).find(
+    (m) => m && m.daysLeft >= 1 && m.daysLeft <= 7 && !m.met
+  );
+  if (!month) {
     flag.style.display = "none";
     return;
   }
+  flag.dataset.month = month.start;  // what its own fill button plans
   const days = month.daysLeft === 1 ? "1 day" : month.daysLeft + " days";
   $("month-flag-text").innerHTML = "";
   const lead = document.createElement("b");
-  lead.textContent = `${hours(month.toLog)}h still to log in ${month.label}`;
+  lead.textContent = `${owed(month.toLog)}h still to log in ${month.label}`;
   $("month-flag-text").append("\u26a0 " + days + " left · ", lead);
   $("month-flag-sub").textContent =
-    (month.remaining > 0.01
-      ? `${hours(month.remaining)}h of that isn't on the grid yet`
+    (!month.onTrack
+      ? `${owed(month.remaining)}h of that isn't on the grid yet`
       : "all of it is planned") + ` · ${hours(month.perDay)}h a day to finish`;
-  $("month-flag-fill").style.display = month.remaining > 0.01 ? "" : "none";
+  $("month-flag-fill").style.display = month.onTrack ? "none" : "";
   $("month-flag-fill").disabled = false;
   flag.style.display = "flex";
 }
@@ -1059,9 +1265,9 @@ function monthCell(day, month, planned, missed, peak, today) {
     span.textContent = text;
     figs.appendChild(span);
   };
-  if (clocked > 0.01) line("din", hours(clocked) + "h in");
-  if (plan > 0.01) line("dpl", hours(plan) + "h plan");
-  if (clocked <= 0.01 && plan <= 0.01) line("", "—");
+  if (clocked >= NIL) line("din", hours(clocked) + "h in");
+  if (plan >= NIL) line("dpl", hours(plan) + "h plan");
+  if (clocked < NIL && plan < NIL) line("", "—");
   if (missed.has(key)) line("dmiss", "not logged");
 
   cell.append(num, bar, figs);
@@ -1116,6 +1322,7 @@ function drawMonthGrid(month) {
 function eventsFrom(week) {
   const clashing = new Set(week.conflicts.map((c) => c.blockId));
   const unlogged = new Map((week.unlogged || []).map((u) => [u.blockId, u.hours]));
+  const missedGaps = new Map((week.unlogged || []).map((u) => [u.blockId, u.gaps || []]));
   const planned = week.blocks.map((block) => {
     const missed = unlogged.get(block.id);
     const classNames = ["plan-block"];
@@ -1133,7 +1340,7 @@ function eventsFrom(week) {
       classNames,
       // The block itself rides along so the ✎ button can open the editor
       // without going back to the server for what it already has.
-      extendedProps: { kind: "plan", block },
+      extendedProps: { kind: "plan", block, missGaps: missedGaps.get(block.id) || [] },
     };
   });
   // Actual sessions sit behind planned blocks: a planned block with tint under
@@ -1160,6 +1367,39 @@ function eventsFrom(week) {
   return actual.concat(busy).concat(planned);
 }
 
+const MARK_BEFORE_END_MIN = 42;
+
+// Pieces drawn over a plan block by position within it: hatching for each
+// stretch that went unclocked, and a dotted marker 42 minutes before the end.
+// Both anchor to the event element (absolutely positioned by FullCalendar),
+// as percentages of the block's length.
+function blockOverlays(event) {
+  const start = event.start.getTime();
+  const span = event.end.getTime() - start;
+  if (span <= 0) return [];
+  const at = (ms) => `${((ms - start) / span) * 100}%`;
+  const nodes = (event.extendedProps.missGaps || []).map(([from, to]) => {
+    const gap = document.createElement("div");
+    gap.className = "miss-gap";
+    gap.style.top = at(new Date(from).getTime());
+    gap.style.bottom = `calc(100% - ${at(new Date(to).getTime())})`;
+    return gap;
+  });
+  const markMs = event.end.getTime() - MARK_BEFORE_END_MIN * 60000;
+  if (markMs > start) {
+    const mark = document.createElement("div");
+    mark.className = "mark-42";
+    mark.style.top = at(markMs);
+    const label = document.createElement("span");
+    label.textContent = FullCalendar.formatDate(new Date(markMs), {
+      hour: "numeric", minute: "2-digit", meridiem: "short",
+    });
+    mark.append(label);
+    nodes.push(mark);
+  }
+  return nodes;
+}
+
 // Custom day-header renderer (passed to FullCalendar as dayHeaderContent) so
 // each column can show its clocked-hours tally under the weekday/date —
 // FullCalendar's built-in header has no slot for that.
@@ -1175,8 +1415,8 @@ function dayHeader(arg) {
   dom.className = "dom";
   dom.textContent = arg.date.getDate();
   const tally = document.createElement("span");
-  tally.className = clocked > 0 ? "tally" : "tally zero";
-  tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
+  tally.className = clocked >= NIL ? "tally" : "tally zero";
+  tally.textContent = clocked >= NIL ? hours(clocked) + "h in" : "—";
   wrap.append(dow, dom, tally);
   return { domNodes: [wrap] };
 }
@@ -1196,8 +1436,9 @@ function paint(week) {
   $("target-label").textContent = week.summary.target;
 
   drawRail(week.summary);
-  drawMonth(week.month);
-  drawMonthFlag(week.month);
+  const months = week.months || [week.month];
+  drawMonths(months);
+  drawMonthFlag(months);
   say(week.intraError ? "Intra: " + week.intraError : "");
   $("push").disabled = !week.icloudEnabled;
   $("pull").disabled = !week.icloudEnabled;
@@ -1214,8 +1455,8 @@ function paint(week) {
     const tally = cell.querySelector(".tally");
     if (!iso || !tally) return;
     const clocked = week.clockedByDay[iso] || 0;
-    tally.textContent = clocked > 0 ? hours(clocked) + "h in" : "—";
-    tally.className = clocked > 0 ? "tally" : "tally zero";
+    tally.textContent = clocked >= NIL ? hours(clocked) + "h in" : "—";
+    tally.className = clocked >= NIL ? "tally" : "tally zero";
   });
 }
 
@@ -1301,8 +1542,12 @@ function setView(name) {
   const isWeek = name === "week";
   const isMonth = name === "month";
   const isGoals = name === "goals";
+  const isSummary = name === "summary";
 
-  [["tab-week", isWeek], ["tab-month", isMonth], ["tab-goals", isGoals]].forEach(
+  [
+    ["tab-week", isWeek], ["tab-month", isMonth],
+    ["tab-goals", isGoals], ["tab-summary", isSummary],
+  ].forEach(
     ([id, on]) => {
       $(id).classList.toggle("is-on", on);
       $(id).setAttribute("aria-selected", String(on));
@@ -1312,6 +1557,9 @@ function setView(name) {
   $("grid").style.display = isWeek ? "" : "none";
   $("monthgrid").style.display = isMonth ? "" : "none";
   $("goalsview").style.display = isGoals ? "" : "none";
+  $("summaryview").style.display = isSummary ? "" : "none";
+  document.querySelector(".banner").classList.toggle("is-summary", isSummary);
+  $("hint-summary").style.display = isSummary ? "" : "none";
   $("monthstrip").style.display = isWeek ? "" : "none";  // redundant beside the month rail
   $("hint-week").style.display = isWeek ? "" : "none";
   $("hint-month").style.display = isMonth ? "" : "none";
@@ -1321,6 +1569,16 @@ function setView(name) {
   $("prev").setAttribute("aria-label", "Previous " + unit);
   $("next").setAttribute("aria-label", "Next " + unit);
   if (!isGoals) freezeNav(false);
+
+  if (isSummary) {
+    // The flag is about one month; this view is about all of them. Whichever
+    // view comes next redraws it.
+    $("month-flag").style.display = "none";
+    say("");
+    if (state.summary) paintSummary(state.summary);
+    refreshSummary();
+    return;
+  }
 
   if (isGoals) {
     if (!state.monthAnchor && state.week) state.monthAnchor = state.week.month.start;
@@ -1350,6 +1608,7 @@ function setView(name) {
 // Repaints whichever view is on screen — used after anything that changes
 // blocks, since a write in one view invalidates the other's totals too.
 function refreshView(force) {
+  if (state.view === "summary") return refreshSummary(force);
   if (state.view === "goals") {
     // Blocks changed, so both the list and the month figures behind it are
     // stale. One after the other, not at once: the busy guard would drop
@@ -1876,7 +2135,7 @@ async function boot() {
         evt.stopPropagation();  // don't let this reach the block's own drag/select handling
         deleteBlock(arg.event.id, arg.event.title);
       };
-      wrap.append(time, title, edit, del);
+      wrap.append(...blockOverlays(arg.event), time, title, edit, del);
       return { domNodes: [wrap] };
     },
     // The calendar owns navigation. When its range changes we fetch data for
@@ -1912,10 +2171,261 @@ async function boot() {
   paint(first);
 }
 
+// ---- Summary ---------------------------------------------------------------
+// Everything clocked since SUMMARY_SINCE: a column per month in time order,
+// then the same months and every week as tables, newest first.
+
+async function refreshSummary(force) {
+  try {
+    const summary = await api("/api/summary" + (force ? "?refresh=true" : ""));
+    state.summary = summary;
+    if (state.view === "summary") paintSummary(summary);
+  } catch (error) {
+    say(error.message);
+  }
+}
+
+const monthName = (iso, withYear) =>
+  dayDate(iso).toLocaleDateString(undefined, withYear
+    ? { month: "short", year: "numeric" }
+    : { month: "short" });
+
+function weekName(week) {
+  const from = dayDate(week.start);
+  const to = dayDate(week.end);
+  to.setDate(to.getDate() - 1);  // `end` is exclusive
+  const short = { month: "short", day: "numeric" };
+  const tail = from.getMonth() === to.getMonth()
+    ? to.getDate()
+    : to.toLocaleDateString(undefined, short);
+  return `${from.toLocaleDateString(undefined, short)} – ${tail}, ${to.getFullYear()}`;
+}
+
+// "+13.4" over target, "−10.3" under; a period still running reads as what is
+// left to go instead, since it isn't short of anything yet. Only strictly over
+// counts — exactly on the target is short. Within a tenth of it, two decimals,
+// so the sign is never hidden behind a "0.0".
+function versus(period, target) {
+  const diff = period.hours - target;
+  const size = (n) => (n < NIL ? n.toFixed(2) : hours(n));
+  if (diff > 0) return { text: "+" + size(diff), cls: "" };
+  if (period.current) return { text: owed(-diff) + " to go", cls: "dim" };
+  return { text: "\u2212" + size(-diff), cls: "short" };
+}
+
+function paintSummary(summary) {
+  $("range").textContent = "Since " + monthName(summary.since, true);
+  say(summary.intraError ? "Intra: " + summary.intraError : "");
+
+  const total = summary.months.reduce((sum, m) => sum + m.hours, 0);
+  const finished = summary.months.filter((m) => !m.current);
+  const met = finished.filter((m) => m.hours > summary.monthlyTarget).length;
+  const best = summary.months.reduce((a, b) => (b.hours > a.hours ? b : a), summary.months[0]);
+  $("sum-stat").textContent =
+    `${total.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h in total` +
+    (best && best.hours > 0 ? ` · best ${monthName(best.start, true)} (${hours(best.hours)}h)` : "") +
+    ` · ${met} of ${finished.length} full months over ${summary.monthlyTarget}h`;
+
+  drawSummaryChart(summary);
+  $("sum-mtarget").textContent = `vs ${summary.monthlyTarget}h`;
+  $("sum-wtarget").textContent = `vs ${summary.weeklyTarget}h`;
+  fillSummaryTable($("sum-months"), summary.months, summary.monthlyTarget,
+    (m) => monthName(m.start, true), (m) => openMonth(m.start));
+  fillSummaryTable($("sum-weeks"), summary.weeks, summary.weeklyTarget,
+    weekName, (w) => openWeek(w.start));
+}
+
+function fillSummaryTable(body, periods, target, name, open) {
+  body.innerHTML = "";
+  periods.slice().reverse().forEach((period) => {
+    const row = document.createElement("tr");
+    row.tabIndex = 0;
+    const cell = (text, cls) => {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      row.appendChild(td);
+      return td;
+    };
+    const first = cell(name(period));
+    if (period.current) {
+      const tag = document.createElement("span");
+      tag.className = "sofar";
+      tag.textContent = "so far";
+      first.appendChild(tag);
+    }
+    cell(hours(period.hours) + "h", period.hours > 0 ? "" : "dim");
+    const vs = versus(period, target);
+    cell(vs.text, vs.cls);
+    cell(String(period.days), period.days ? "" : "dim");
+    row.onclick = () => open(period);
+    row.onkeydown = (evt) => { if (evt.key === "Enter") open(period); };
+    body.appendChild(row);
+  });
+}
+
+function openMonth(start) {
+  state.monthAnchor = start;
+  setView("month");
+}
+
+// Hand-drawn SVG rather than a chart library: one series of columns and a
+// target line don't justify a dependency. Redrawn on resize so text stays at
+// its real size instead of being scaled by a viewBox.
+function drawSummaryChart(summary) {
+  const box = $("sum-chart");
+  const tip = $("sum-tip");
+  box.querySelectorAll("svg").forEach((node) => node.remove());
+  const months = summary.months;
+  if (!months.length) return;
+
+  const width = box.clientWidth || 600;
+  const height = 240;
+  const pad = { top: 18, right: 8, bottom: 38, left: 36 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const target = summary.monthlyTarget;
+
+  // Clean ticks: the smallest round step that keeps the axis to ~5 lines.
+  const peak = Math.max(target, ...months.map((m) => m.hours));
+  const stepSize = [10, 20, 25, 50, 100, 200].find((n) => peak / n <= 5) || 250;
+  const top = Math.ceil(peak / stepSize) * stepSize;
+  const y = (v) => pad.top + plotH - (v / top) * plotH;
+
+  const band = plotW / months.length;
+  const barW = Math.min(24, band * 0.62);
+  // Below this width month names collide, so every other one is dropped.
+  const labelEvery = band < 30 ? 2 : 1;
+
+  const NS = "http://www.w3.org/2000/svg";
+  const node = (tag, attrs, text) => {
+    const n = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const svg = node("svg", {
+    width, height, role: "img",
+    "aria-label": "Hours clocked per month since " + monthName(summary.since, true) +
+      ". The tables below list every value.",
+  });
+
+  // This month isn't finished, so it is striped like the planned rail rather
+  // than solid like a closed month.
+  const defs = node("defs", {});
+  const hatch = node("pattern", {
+    id: "sum-hatch", width: 6, height: 6,
+    patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)",
+  });
+  hatch.append(
+    node("rect", { width: 6, height: 6, fill: "#8a93a6" }),
+    node("rect", { width: 3, height: 6, style: "fill: var(--clocked)" })
+  );
+  defs.appendChild(hatch);
+  svg.appendChild(defs);
+
+  for (let v = 0; v <= top; v += stepSize) {
+    svg.appendChild(node("line", {
+      class: v === 0 ? "base" : "grid",
+      x1: pad.left, x2: width - pad.right, y1: y(v), y2: y(v),
+    }));
+    svg.appendChild(node("text", {
+      class: "axis", x: pad.left - 6, y: y(v) + 4, "text-anchor": "end",
+    }, String(v)));
+  }
+
+  const bestIndex = months.reduce((b, m, i) => (m.hours > months[b].hours ? i : b), 0);
+  months.forEach((month, i) => {
+    const cx = pad.left + band * i + band / 2;
+    const x = cx - barW / 2;
+    const h = Math.max(0, y(0) - y(month.hours));
+    const r = Math.min(4, h, barW / 2);
+
+    // The whole band is the hover/focus target, not just the bar — a 0h
+    // month has no bar to hover at all.
+    const hit = node("rect", {
+      class: "hit", x: pad.left + band * i, y: pad.top, width: band, height: plotH,
+      tabindex: 0, "aria-label": `${monthName(month.start, true)}: ${hours(month.hours)} hours`,
+    });
+    const show = () => {
+      const vs = versus(month, target);
+      tip.innerHTML = "";
+      const head = document.createElement("div");
+      const value = document.createElement("b");
+      value.textContent = hours(month.hours) + "h";
+      head.append(value, " " + monthName(month.start, true) + (month.current ? " so far" : ""));
+      const sub = document.createElement("div");
+      sub.className = "sub";
+      sub.textContent = `${month.days} days in · ${vs.text} vs ${target}h`;
+      tip.append(head, sub);
+      tip.style.top = y(month.hours) + "px";
+      tip.hidden = false;
+      // Centred on the bar, but kept inside the chart at either end.
+      const half = tip.offsetWidth / 2;
+      tip.style.left = Math.min(Math.max(cx, half), width - half) + "px";
+    };
+    hit.addEventListener("pointerenter", show);
+    hit.addEventListener("focus", show);
+    hit.addEventListener("pointerleave", () => { tip.hidden = true; });
+    hit.addEventListener("blur", () => { tip.hidden = true; });
+    hit.addEventListener("click", () => openMonth(month.start));
+    hit.addEventListener("keydown", (evt) => { if (evt.key === "Enter") openMonth(month.start); });
+    svg.appendChild(hit);
+
+    if (h > 0) {
+      // Rounded at the data end, square on the baseline.
+      const yTop = y(month.hours);
+      svg.appendChild(node("path", {
+        class: month.current ? "bar current" : "bar",
+        d: `M${x},${y(0)} V${yTop + r} Q${x},${yTop} ${x + r},${yTop} ` +
+           `H${x + barW - r} Q${x + barW},${yTop} ${x + barW},${yTop + r} V${y(0)} Z`,
+      }));
+    }
+
+    // Values go on two caps only — the best month and this one; the tooltip
+    // and the table carry the rest.
+    if ((i === bestIndex && month.hours > 0) || month.current) {
+      svg.appendChild(node("text", {
+        class: "cap", x: cx, y: y(month.hours) - 5, "text-anchor": "middle",
+      }, hours(month.hours)));
+    }
+
+    if (i % labelEvery === 0 || month.current) {
+      svg.appendChild(node("text", {
+        class: "axis", x: cx, y: height - pad.bottom + 16, "text-anchor": "middle",
+      }, monthName(month.start)));
+    }
+    // The year under January, and under the first column so it is never absent.
+    if (i === 0 || month.start.endsWith("-01-01")) {
+      svg.appendChild(node("text", {
+        class: "axis year", x: cx, y: height - pad.bottom + 31, "text-anchor": "middle",
+      }, month.start.slice(0, 4)));
+    }
+  });
+
+  // Drawn last so the bars don't cover it: a month is read against this.
+  svg.appendChild(node("line", {
+    class: "target", x1: pad.left, x2: width - pad.right, y1: y(target), y2: y(target),
+  }));
+  svg.appendChild(node("text", {
+    class: "axis", x: width - pad.right, y: y(target) - 5, "text-anchor": "end",
+  }, target + "h target"));
+
+  box.insertBefore(svg, tip);
+}
+
+let summaryResize = 0;
+window.addEventListener("resize", () => {
+  if (state.view !== "summary" || !state.summary) return;
+  cancelAnimationFrame(summaryResize);
+  summaryResize = requestAnimationFrame(() => drawSummaryChart(state.summary));
+});
+
 // The arrows step whatever unit is on screen.
 // The arrows step whichever unit is on screen; in the goals view that's the
 // month the list is showing.
 function step(delta) {
+  if (state.view === "summary") return;  // one view of all history, nothing to step
   if (state.view === "week") {
     if (state.calendar) delta < 0 ? state.calendar.prev() : state.calendar.next();
     return;
@@ -1929,6 +2439,7 @@ $("next").onclick = () => step(1);
 $("tab-week").onclick = () => setView("week");
 $("tab-month").onclick = () => setView("month");
 $("tab-goals").onclick = () => setView("goals");
+$("tab-summary").onclick = () => setView("summary");
 
 $("refresh").onclick = async () => {
   $("refresh").disabled = true;
@@ -1947,7 +2458,7 @@ async function fillGap(scope, anchor) {
   if (anchor) query.set("date_", anchor);
   const result = await api("/api/rebalance?" + query.toString(), { method: "POST" });
   await refreshView();
-  say(result.detail, result.shortfall > 0.01 ? "warn" : "good");
+  say(result.detail, result.shortfall > 0 ? "warn" : "good");
 }
 
 $("fill").onclick = async () => {
@@ -1959,12 +2470,12 @@ $("fill").onclick = async () => {
   } catch (error) { say(error.message); $("fill").disabled = false; }
 };
 
-// The flag's own button always means the month, whichever view it appears on.
+// The flag's own button always means the month the flag is about, whichever
+// view it appears on — in a straddling week that isn't the week's own month.
 $("month-flag-fill").onclick = async () => {
   $("month-flag-fill").disabled = true;
   try {
-    const month = state.view === "week" ? state.week.month.start : state.monthAnchor;
-    await fillGap("month", month);
+    await fillGap("month", $("month-flag").dataset.month);
   } catch (error) { say(error.message); $("month-flag-fill").disabled = false; }
 };
 
