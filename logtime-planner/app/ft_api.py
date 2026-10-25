@@ -9,16 +9,20 @@ Two endpoints do all the work:
       individual sessions with begin_at / end_at, newest first. A session with
       end_at == null is still running, and its hours are NOT yet included in
       locations_stats — we add them back by hand.
+
+Both are filtered through LOGTIME_IGNORE on the way out, so nothing above this
+module ever sees time intra recorded wrongly.
 """
 
 from __future__ import annotations
 
 import re
 import threading
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import httpx
 
+from . import planner
 from .config import settings
 
 TOKEN_URL = "https://api.intra.42.fr/oauth/token"
@@ -157,7 +161,10 @@ class FtClient:
             if reached_the_past:
                 break
 
-        return found
+        ignored = settings.ignored_windows
+        return [
+            piece for session in found for piece in planner.subtract(session, ignored)
+        ]
 
     def all_logtime(self) -> dict[date, timedelta]:
         """Every day intra has a record for. One call feeds the week, month and
@@ -176,6 +183,26 @@ class FtClient:
             except ValueError:
                 continue
             out[day] = parse_duration(duration_str)
+        return self._without_ignored(out)
+
+    def _without_ignored(self, out: dict[date, timedelta]) -> dict[date, timedelta]:
+        """locations_stats is one number per day, so there is no subtracting
+        part of a day from it. Instead every day an ignore window touches is
+        rebuilt from its sessions, which sessions_between has already trimmed."""
+        ignored = settings.ignored_windows
+        if not ignored:
+            return out
+        touched = set(planner.hours_by_day(ignored, settings.tz))
+        start = datetime.combine(min(touched), time.min, tzinfo=settings.tz)
+        end = datetime.combine(
+            max(touched) + timedelta(days=1), time.min, tzinfo=settings.tz
+        )
+        rebuilt = planner.hours_by_day(self.sessions_between(start, end), settings.tz)
+        for day in touched:
+            if rebuilt.get(day):
+                out[day] = rebuilt[day]
+            else:
+                out.pop(day, None)
         return out
 
     def daily_logtime(self, start: date, end: date) -> dict[date, timedelta]:

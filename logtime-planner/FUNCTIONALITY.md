@@ -377,6 +377,7 @@ pre-computed, which keeps the maths in one place.
 | `MONTHLY_TARGET_HOURS` | `90` | Drives the month strip only |
 | `WEEK_START_DAY` | `0` | 0=Mon … 6=Sun |
 | `SUMMARY_SINCE` | `2025-05-01` | First day the Summary tab covers (weeks start at the first full week after it) |
+| `LOGTIME_IGNORE` | — | `start/end` local spans whose clocked time is discarded (bad intra data); comma-separated, bare dates mean whole days |
 | `DAY_WINDOW_START` | `08:00` | Earliest auto-fill will place a block |
 | `DAY_WINDOW_END` | `23:00` | Latest |
 | `MIN_BLOCK_MINUTES` | `60` | Shortest auto-placed block |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -17,6 +17,32 @@ def _csv(name: str) -> list[str]:
     (so a trailing comma or an unset var don't leave `[""]` around)."""
     raw = os.getenv(name, "")
     return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _windows(name: str) -> list[tuple[datetime, datetime]]:
+    """Read comma-separated `start/end` pairs, local time, no timezone.
+
+    Either side may be a bare date: a start date means its midnight, an end
+    date means the *end* of that day, so `2026-10-22/2026-10-23` is both days
+    whole. Naive here because the timezone is itself a setting; Settings
+    attaches it."""
+    windows: list[tuple[datetime, datetime]] = []
+    for part in _csv(name):
+        try:
+            raw_start, raw_end = (side.strip() for side in part.split("/"))
+            start = datetime.fromisoformat(raw_start)
+            end = datetime.fromisoformat(raw_end)
+        except ValueError as exc:
+            raise ValueError(
+                f"{name}: can't read {part!r} — expected start/end, e.g. "
+                "2026-10-22T16:00/2026-10-23T12:00"
+            ) from exc
+        if "T" not in raw_end and " " not in raw_end:
+            end += timedelta(days=1)
+        if end <= start:
+            raise ValueError(f"{name}: {part!r} ends before it starts.")
+        windows.append((start, end))
+    return windows
 
 
 def _time(name: str, default: str) -> time:
@@ -66,9 +92,24 @@ class Settings:
 
     db_path: str = os.getenv("DB_PATH", "logtime.db")
 
+    # Spans whose clocked time intra got wrong — a logout that never reached
+    # it, say — and that you'd rather plan around than wait out. Every view
+    # treats time inside them as never clocked. Delete the entry once intra
+    # corrects itself, or real time inside the span stays hidden too.
+    logtime_ignore: list[tuple[datetime, datetime]] = field(
+        default_factory=lambda: _windows("LOGTIME_IGNORE")
+    )
+
     @property
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
+
+    @property
+    def ignored_windows(self) -> list[tuple[datetime, datetime]]:
+        return [
+            (start.replace(tzinfo=self.tz), end.replace(tzinfo=self.tz))
+            for start, end in self.logtime_ignore
+        ]
 
     @property
     def icloud_enabled(self) -> bool:

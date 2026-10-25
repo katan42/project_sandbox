@@ -381,6 +381,18 @@ listening on 8042. The server needs its own terminal; run curl in a second tab.
 **Numbers don't match intra** — the weekly total should equal the sum of the day
 tallies. If it doesn't, that's a bug, not a rounding artefact.
 
+**Intra clocked time you didn't do** — usually a logout that never reached
+intra (a network outage, a machine left on), showing up as one long session.
+Put the span in `LOGTIME_IGNORE` and restart:
+
+```bash
+LOGTIME_IGNORE=2026-10-22T16:06/2026-10-23T11:41
+```
+
+Every view then treats that time as never clocked, so the week, month and
+auto-fill plan against what you really did. Take the entry out once intra
+corrects the session; left in, it would also hide any real time in that span.
+
 **The month says something different from the week** — check which month the
 strip is reporting on. It follows the week you're viewing, not today's date, so
 a week in late September and a week in early October will show different months
